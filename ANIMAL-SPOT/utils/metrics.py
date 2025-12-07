@@ -279,3 +279,59 @@ class F1Score(MetricBase):
             torch.div(2 * self.pr._get_tensor() * self.re._get_tensor(), s),
             torch.zeros_like(s),
         )
+
+"""
+Define per-class accuracy metric for multi-class classification
+Tracks accuracy for each class separately
+"""
+class PerClassAccuracy(MetricBase):
+    def __init__(self, num_classes, device=None):
+        self.num_classes = num_classes
+        self.device = device
+        # Track correct predictions per class
+        self.correct = torch.zeros(num_classes, dtype=torch.float, device=device)
+        # Track total samples per class
+        self.total = torch.zeros(num_classes, dtype=torch.float, device=device)
+
+    def reset(self, device=None):
+        if device is None:
+            device = self.device
+        self.__init__(self.num_classes, device=device)
+
+    def update(self, labels, predictions, weights=None):
+        with torch.no_grad():
+            predictions = predictions.type_as(labels)
+            is_correct = torch.eq(labels, predictions).float()
+
+            # For each class, count correct predictions and total samples
+            for class_idx in range(self.num_classes):
+                class_mask = torch.eq(labels, class_idx)
+                class_correct = torch.mul(is_correct, class_mask.float())
+
+                if weights is not None:
+                    if torch.is_tensor(weights):
+                        weights_tensor = weights.float()
+                    else:
+                        weights_tensor = torch.full_like(labels, weights, dtype=torch.float)
+                    class_correct = torch.mul(class_correct, weights_tensor)
+                    class_total = torch.mul(class_mask.float(), weights_tensor)
+                else:
+                    class_total = class_mask.float()
+
+                self.correct[class_idx] += class_correct.sum()
+                self.total[class_idx] += class_total.sum()
+
+    def get(self):
+        """Returns per-class accuracy as a list"""
+        accuracies = []
+        for class_idx in range(self.num_classes):
+            if self.total[class_idx] > 0:
+                acc = (self.correct[class_idx] / self.total[class_idx]).item()
+            else:
+                acc = 0.0
+            accuracies.append(acc)
+        return accuracies
+
+    def _get_tensor(self):
+        """Returns per-class accuracy as a tensor"""
+        return _safe_div(self.correct, self.total)

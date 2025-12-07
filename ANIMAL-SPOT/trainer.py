@@ -506,8 +506,30 @@ class Trainer:
             log_str += "|loss:{:0.3f}".format(loss)
             if isinstance(metrics, dict):
                 for name, metric in metrics.items():
-                    self.writer.add_scalar(phase + "/" + name, metric.get(), epoch)
-                    log_str += "|{}:{:0.3f}".format(name, metric.get())
+                    # Handle PerClassAccuracy metrics specially
+                    if isinstance(metric, m.PerClassAccuracy):
+                        per_class_acc = metric.get()
+                        # Get class names if available
+                        if hasattr(self, 'idx_to_class') and self.idx_to_class is not None:
+                            idx_to_class = self.idx_to_class
+                            class_names = [idx_to_class.get(i, f"class_{i}") for i in range(len(per_class_acc))]
+                        else:
+                            class_names = [f"class_{i}" for i in range(len(per_class_acc))]
+
+                        # Log each class accuracy separately
+                        for class_idx, acc in enumerate(per_class_acc):
+                            self.writer.add_scalar(
+                                phase + "/per_class_accuracy/" + class_names[class_idx],
+                                acc,
+                                epoch
+                            )
+                        # Also log mean per-class accuracy
+                        mean_per_class_acc = sum(per_class_acc) / len(per_class_acc) if len(per_class_acc) > 0 else 0.0
+                        self.writer.add_scalar(phase + "/mean_per_class_accuracy", mean_per_class_acc, epoch)
+                        log_str += "|mean_per_class_acc:{:0.3f}".format(mean_per_class_acc)
+                    else:
+                        self.writer.add_scalar(phase + "/" + name, metric.get(), epoch)
+                        log_str += "|{}:{:0.3f}".format(name, metric.get())
             else:
                 for i, metric in enumerate(metrics):
                     self.writer.add_scalar(

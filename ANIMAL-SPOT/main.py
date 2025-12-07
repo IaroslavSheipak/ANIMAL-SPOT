@@ -34,6 +34,8 @@ from utils.logging import Logger
 from collections import OrderedDict
 from models.residual_encoder import DefaultEncoderOpts
 from models.residual_encoder import ResidualEncoder as Encoder
+from models.convnext_encoder import DefaultEncoderOpts as DefaultConvNextEncoderOpts
+from models.convnext_encoder import ConvNextEncoder
 from models.classifier import Classifier, DefaultClassifierOpts
 
 parser = argparse.ArgumentParser()
@@ -244,6 +246,20 @@ parser.add_argument(
 )
 
 parser.add_argument(
+    "--backbone",
+    type=str,
+    default="resnet",
+    choices=["resnet", "convnext"],
+    help="Backbone architecture to use (resnet or convnext, default: resnet)"
+)
+
+parser.add_argument(
+    "--pretrained",
+    action="store_true",
+    help="Use ImageNet pretrained weights for the backbone (transfer learning)"
+)
+
+parser.add_argument(
     "--conv_kernel_size", nargs="*", type=int, help="Initial convolution kernel size."
 )
 
@@ -400,11 +416,23 @@ if __name__ == "__main__":
     log.debug("Number of spectrogram time-steps (input size = time-steps x frequency-bins) : {}".format(sequence_len))
     input_shape = (ARGS.batch_size, 1, dataOpts["n_freq_bins"], sequence_len)
 
-    log.info("Setting up model")
+    log.info("Setting up model with backbone: {}".format(ARGS.backbone))
 
-    encoder = Encoder(encoderOpts)
+    # Select encoder based on backbone argument
+    if ARGS.backbone == "convnext":
+        encoderOpts = DefaultConvNextEncoderOpts.copy()
+        encoderOpts["input_channels"] = 1
+        encoderOpts["pretrained"] = ARGS.pretrained
+        encoder = ConvNextEncoder(encoderOpts)
+        encoder_out_ch = encoder.output_channels  # 768 for ConvNeXt Tiny
+        log.info("Using ConvNeXt Tiny encoder (pretrained={})".format(ARGS.pretrained))
+    else:
+        encoder = Encoder(encoderOpts)
+        encoder_out_ch = 512 * encoder.block_type.expansion
+        log.info("Using ResNet-{} encoder".format(ARGS.resnet_size))
+
     log.debug("Encoder: " + str(encoder))
-    encoder_out_ch = 512 * encoder.block_type.expansion
+    log.debug("Encoder output channels: {}".format(encoder_out_ch))
 
     classifierOpts["input_channels"] = encoder_out_ch
     classifier = Classifier(classifierOpts)
@@ -483,7 +511,8 @@ if __name__ == "__main__":
     elif classifierOpts["num_classes"] > 2:
         prefix = "multi_class_" + str(classifierOpts["num_classes"]) + "_classifier"
         metrics = {
-            "accuracy": m.Accuracy(ARGS.device)
+            "accuracy": m.Accuracy(ARGS.device),
+            "per_class_accuracy": m.PerClassAccuracy(classifierOpts["num_classes"], ARGS.device)
         }
     else:
         raise Exception("not a valid number of classes")
