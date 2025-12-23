@@ -123,10 +123,11 @@ class Spectrogram(object):
             window=self.window,
             center=self.center,
             onesided=True,
-            return_complex=False
+            return_complex=True
         ).transpose(1, 2)
         S /= self.window.pow(2).sum().sqrt()
-        S = S.pow(2).sum(-1)
+        # Get power spectrogram (magnitude squared) from complex output
+        S = S.abs().pow(2)
         return S
 
 

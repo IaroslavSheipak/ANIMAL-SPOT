@@ -26,8 +26,9 @@ from torch.optim.lr_scheduler import OneCycleLR
 # CUDA optimizations for faster training
 if torch.cuda.is_available():
     torch.backends.cudnn.benchmark = True  # Auto-tune cuDNN for faster convolutions
-    torch.backends.cuda.matmul.allow_tf32 = True  # Enable TF32 for faster matrix multiplications
-    torch.backends.cudnn.allow_tf32 = True  # Enable TF32 for cuDNN
+    # Use new TF32 API (PyTorch 2.0+) to avoid deprecation warnings
+    # 'high' enables TF32 for better performance on Ampere+ GPUs
+    torch.set_float32_matmul_precision('high')
 
 from data.audiodataset import (
     get_audio_files_from_dir,

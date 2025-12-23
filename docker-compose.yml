@@ -34,7 +34,7 @@ services:
         --max_train_epochs ${MAX_EPOCHS:-150}
         --batch_size ${BATCH_SIZE:-16}
         --lr ${LEARNING_RATE:-1e-4}
-        --backbone ${BACKBONE:-convnext}
+        --backbone ${BACKBONE:-resnet}
         ${PRETRAINED:+--pretrained}
         ${WEIGHTED_SAMPLING:+--weighted_sampling}
         ${AUGMENTATION:+--augmentation}
