@@ -1,0 +1,39 @@
+
+CETACEAN CLASSIFICATION - FINAL RESULTS SUMMARY
+================================================
+Date: December 23, 2025
+Total Experiments: 24 (15 November + 9 December)
+
+BEST MODEL: exp3_max_seq_balanced
+---------------------------------
+Test Accuracy: 99.49%
+K12 Accuracy:  96.2% (+10.7% vs November)
+K14 Accuracy:  83.3% (+20.8% vs November)
+
+Configuration:
+- Backbone: ResNet18 (from scratch)
+- Sequence Length: 1000ms
+- Loss: Label Smoothing (0.1)
+- Sampling: sqrt_inverse_freq with 1.5x K12/K14 boost
+- Batch Size: 64
+- Learning Rate: 0.0003
+- Scheduler: OneCycle
+
+KEY FINDINGS:
+1. 1000ms sequence length is optimal (longer sequences did NOT help)
+2. Label smoothing (0.1) beats focal loss and cross-entropy
+3. sqrt_inverse_freq sampling with moderate boost (1.5x) is optimal
+4. ResNet18 outperforms ResNet34 and ConvNeXt
+5. Training from scratch beats ImageNet pretraining for spectrograms
+
+WHAT DIDN'T WORK:
+- Focal loss (noise class collapse)
+- MixUp/SpecAugment (training instability)
+- Aggressive class weighting (3x+)
+- Longer sequences (1200ms, 1500ms)
+- Larger models (ResNet34)
+
+Per-Class Results (Best Model):
+K1: 99.5%  K3: 97.6%  K4: 98.1%  K5: 99.7%  K7: 100.0%
+K10: 98.1% K12: 96.2% K13: 100.0% K14: 83.3% K17: 100.0%
+K21: 93.9% K27: 100.0% noise: 99.9%

@@ -1,0 +1,31 @@
+================================================================================
+CETACEAN CLASSIFICATION - COMPREHENSIVE RESULTS SUMMARY
+================================================================================
+
+BEST OVERALL ACCURACY:
+  Experiment: 06_resnet18_label_smooth
+  Test Accuracy: 98.94%
+  Backbone: resnet18
+
+BEST K12 (RARE CLASS) ACCURACY:
+  Experiment: 04_resnet18_pretrained
+  K12 Accuracy: 94.94%
+  Overall Accuracy: 67.63%
+
+BEST K14 (MOST RARE CLASS) ACCURACY:
+  Experiment: 04_resnet18_pretrained
+  K14 Accuracy: 91.67%
+  Overall Accuracy: 67.63%
+
+COMPARISON TO BASELINE (97.79%):
+  06_resnet18_label_smooth                 98.94% (+1.15%)
+  01_resnet18_fast_baseline                98.71% (+0.92%)
+  final_convnext                           98.17% (+0.38%)
+  03_resnet18_class_balanced               97.91% (+0.12%)
+  11_resnet18_long_seq                     91.48% (-6.31%)
+  04_resnet18_pretrained                   67.63% (-30.16%)
+  02_resnet18_focal                        67.08% (-30.71%)
+  05_resnet34_focal                        57.83% (-39.96%)
+  08_resnet18_specaugment                  56.99% (-40.80%)
+
+================================================================================

@@ -31,7 +31,7 @@ def get_dict_key_ignorecase(dict_in, key_t):
 
 
 class setup_evaluator(object):
-    
+
     def __init__(self, config, log_level="debug"):
         self.logger = None
         self.config_path = config
@@ -46,6 +46,10 @@ class setup_evaluator(object):
         self.data_opts = None
         self.needed_annotation_columns = ["Selection", "View", "Channel", "Begin time (s)", "End time (s)",
                                           "Low Freq (Hz)", "High Freq (Hz)", "Sound type", "Comments"]
+        # New config options with defaults
+        self.use_probability_priority = True
+        self.min_annotation_duration = 0.1
+        self.merge_gap = 0.15
     def init_logger(self):
         self.logger = logging.getLogger('training animal-spot')
         stream_handler = logging.StreamHandler()
@@ -80,7 +84,36 @@ class setup_evaluator(object):
                     continue
                 else:
                     self.config_data[key] = value
+
+        # Parse new config options
+        if "use_probability_priority" in self.config_data:
+            self.use_probability_priority = True
+        else:
+            # Check if explicitly set to false in file
+            config_file.seek(0)
+            content = config_file.read()
+            if "use_probability_priority=false" in content:
+                self.use_probability_priority = False
+            else:
+                self.use_probability_priority = True  # Default
+
+        if "min_annotation_duration" in self.config_data:
+            try:
+                self.min_annotation_duration = float(self.config_data["min_annotation_duration"])
+            except ValueError:
+                self.min_annotation_duration = 0.1
+
+        if "merge_gap" in self.config_data:
+            try:
+                self.merge_gap = float(self.config_data["merge_gap"])
+            except ValueError:
+                self.merge_gap = 0.15
+
+        config_file.close()
         self.logger.info("Config Data: " + str(self.config_data))
+        self.logger.info(f"Use probability priority: {self.use_probability_priority}")
+        self.logger.info(f"Min annotation duration: {self.min_annotation_duration}s")
+        self.logger.info(f"Merge gap: {self.merge_gap}s")
                 
     def read_prediction_file(self, path_prediction_file):
         time_prob = []
@@ -135,7 +168,10 @@ class setup_evaluator(object):
                 else:
                     threshold_depended_pred_data[time] = [str(get_dict_key_ignorecase(self.classes_label_idx, "noise")), str(prob)]
                     self.logger.debug("time="+time+", pred=0, prob="+str(prob)+"\n")
-        labeled_data, duration = self.get_time_info(threshold_depended_pred_data)
+        if self.use_probability_priority:
+            labeled_data, duration = self.get_time_info(threshold_depended_pred_data)
+        else:
+            labeled_data, duration = self.get_time_info_legacy(threshold_depended_pred_data)
         return labeled_data, duration
 
     def overlapped_times_to_pred(self, time_info, prediction_data):
@@ -171,6 +207,123 @@ class setup_evaluator(object):
             return timestamps
 
     def get_time_info(self, prediction_data):
+        """
+        Convert prediction data to time annotations, resolving overlapping chunks
+        by selecting the prediction with the HIGHEST PROBABILITY (not earliest time).
+
+        This fixes the issue where earlier chunks would incorrectly override
+        later chunks with higher confidence scores.
+        """
+        time_info = []
+        duration = float(list(prediction_data.keys())[-1].split("-")[1])
+        noise_label = str(get_dict_key_ignorecase(self.classes_label_idx, "noise"))
+
+        # Step 1: Build a list of all chunks with their times, predictions, and probabilities
+        chunks = []
+        for timestamp in prediction_data:
+            time = timestamp.replace("-", " ").split(" ")
+            start_time = float(time[0])
+            end_time = float(time[1])
+            pred = prediction_data.get(timestamp)[0]
+            prob = float(prediction_data.get(timestamp)[1])
+
+            # Skip noise predictions
+            if str(pred) != noise_label:
+                chunks.append({
+                    'start': round(start_time, 3),
+                    'end': round(end_time, 3),
+                    'pred': pred,
+                    'prob': prob
+                })
+
+        if not chunks:
+            return time_info, duration
+
+        # Step 2: Create a timeline with the best prediction for each time point
+        # Use a fine-grained approach: sample at hop intervals
+        hop = float(self.hop) if self.hop else 0.1
+        time_resolution = min(hop / 2, 0.05)  # Use half the hop or 50ms, whichever is smaller
+
+        # Create time points
+        max_time = max(c['end'] for c in chunks)
+        min_time = min(c['start'] for c in chunks)
+
+        # For each time point, find the chunk with highest probability that covers it
+        current_start = None
+        current_pred = None
+        current_end = None
+
+        t = min_time
+        while t <= max_time:
+            # Find all chunks that cover this time point
+            covering_chunks = [c for c in chunks if c['start'] <= t < c['end']]
+
+            if covering_chunks:
+                # Select the chunk with highest probability
+                best_chunk = max(covering_chunks, key=lambda c: c['prob'])
+                best_pred = best_chunk['pred']
+
+                if current_pred is None:
+                    # Start a new annotation
+                    current_start = t
+                    current_pred = best_pred
+                    current_end = t + time_resolution
+                elif str(best_pred) == str(current_pred):
+                    # Extend current annotation
+                    current_end = t + time_resolution
+                else:
+                    # Different prediction - save current and start new
+                    time_info.append(([round(current_start, 3), round(current_end, 3)], current_pred))
+                    current_start = t
+                    current_pred = best_pred
+                    current_end = t + time_resolution
+            else:
+                # No chunk covers this point - save current annotation if exists
+                if current_pred is not None:
+                    time_info.append(([round(current_start, 3), round(current_end, 3)], current_pred))
+                    current_pred = None
+                    current_start = None
+                    current_end = None
+
+            t += time_resolution
+
+        # Don't forget the last annotation
+        if current_pred is not None:
+            time_info.append(([round(current_start, 3), round(current_end, 3)], current_pred))
+
+        # Step 3: Filter by minimum duration
+        if self.min_annotation_duration > 0:
+            time_info = [
+                ann for ann in time_info
+                if (ann[0][1] - ann[0][0]) >= self.min_annotation_duration
+            ]
+            self.logger.debug(f"After min duration filter: {len(time_info)} annotations")
+
+        # Step 4: Merge adjacent annotations with the same prediction
+        merge_threshold = self.merge_gap if self.merge_gap else float(self.hop if self.hop else 0.1)
+        if time_info:
+            merged_info = [time_info[0]]
+            for i in range(1, len(time_info)):
+                prev = merged_info[-1]
+                curr = time_info[i]
+                # If same prediction and close in time (within merge_gap), merge
+                if str(prev[1]) == str(curr[1]) and (curr[0][0] - prev[0][1]) < merge_threshold:
+                    merged_info[-1] = ([prev[0][0], curr[0][1]], prev[1])
+                else:
+                    merged_info.append(curr)
+            time_info = merged_info
+
+        self.logger.info(f"Created {len(time_info)} annotations using probability-based selection")
+        return time_info, duration
+
+    def get_time_info_legacy(self, prediction_data):
+        """
+        Legacy method for converting prediction data to time annotations.
+        This uses the original behavior where earlier chunks take priority
+        over later chunks, regardless of probability.
+
+        Kept for backwards compatibility - use get_time_info() for improved behavior.
+        """
         time_info = []
         first_el = True
         duration = float(list(prediction_data.keys())[-1].split("-")[1])
@@ -190,6 +343,8 @@ class setup_evaluator(object):
                         time_info.append(([round(time[0], 3), round(time[1], 3)], pred))
                 else:
                     time_info.append(([round(time[0], 3), round(time[1], 3)], pred))
+
+        self.logger.info(f"Created {len(time_info)} annotations using legacy (time-based) selection")
         return time_info, duration
 
     def get_time_info_former(self, prediction_data):

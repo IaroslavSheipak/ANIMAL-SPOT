@@ -1,0 +1,27 @@
+{
+  "timestamp": "20251223",
+  "total_experiments": 9,
+  "best_k12": 0.9620253164556962,
+  "best_k14": 0.8333333333333334,
+  "best_overall": 0.9948569591771135,
+  "best_config": "exp3_max_seq_balanced",
+  "experiments_summary": {
+    "exp1_long_seq_label_smooth": {"accuracy": 99.10, "k12": 92.4, "k14": 75.0, "seq_len": 800},
+    "exp2_aggressive_k12_k14": {"accuracy": 98.78, "k12": 87.3, "k14": 75.0, "seq_len": 500},
+    "exp3_max_seq_balanced": {"accuracy": 99.49, "k12": 96.2, "k14": 83.3, "seq_len": 1000, "status": "BEST"},
+    "exp4_resnet34_long_seq": {"accuracy": 99.00, "k12": 93.7, "k14": 58.3, "seq_len": 800},
+    "exp5_k14_extreme_focus": {"accuracy": 99.04, "k12": 92.4, "k14": 66.7, "seq_len": 800},
+    "exp6_convnext_ultimate": {"accuracy": 99.20, "k12": 89.9, "k14": 75.0, "seq_len": 1000},
+    "exp7_resnet18_1200ms": {"accuracy": 99.23, "k12": 92.4, "k14": 83.3, "seq_len": 1200},
+    "exp8_resnet18_1500ms": {"accuracy": 99.16, "k12": 92.4, "k14": 75.0, "seq_len": 1500},
+    "exp9_convnext_1200ms_bs64": {"accuracy": 99.04, "k12": 84.8, "k14": 83.3, "seq_len": 1200}
+  },
+  "key_findings": [
+    "1000ms sequence length is optimal",
+    "Longer sequences (1200ms, 1500ms) do NOT improve results",
+    "Label smoothing (0.1) is the best loss function",
+    "sqrt_inverse_freq sampling with 1.5x K12/K14 boost is optimal",
+    "ResNet18 outperforms ResNet34 and ConvNeXt",
+    "Aggressive class weighting hurts overall performance"
+  ]
+}

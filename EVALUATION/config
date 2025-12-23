@@ -28,3 +28,25 @@ threshold=0.85
 ###Activate (=true) versus Deactivate (=false).
 ################
 noise_in_anno=false
+
+################
+###USE_PROBABILITY_PRIORITY = When enabled (default), overlapping predictions are resolved by selecting
+###the chunk with the HIGHEST PROBABILITY, not the earliest one. This fixes an issue where earlier
+###chunks would incorrectly override later chunks with higher confidence scores.
+###Activate (=true) versus Deactivate (=false).
+################
+use_probability_priority=true
+
+################
+###MIN_ANNOTATION_DURATION = Minimum duration (in seconds) for an annotation to be included in the output.
+###Annotations shorter than this value will be filtered out. Set to 0 to keep all annotations.
+###This helps filter out very short spurious detections.
+################
+min_annotation_duration=0.1
+
+################
+###MERGE_GAP = Maximum gap (in seconds) between adjacent annotations of the same class to merge them.
+###Annotations of the same class that are separated by less than this gap will be merged into one.
+###Set to 0 to disable merging.
+################
+merge_gap=0.15
