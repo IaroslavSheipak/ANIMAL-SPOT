@@ -79,6 +79,38 @@ services:
               capabilities: [gpu]
 
   # ============================================
+  # Binary Detector Training Service
+  # ============================================
+  train-binary:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: animal-spot:latest
+    container_name: animal-spot-train-binary
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+    volumes:
+      - ${DATA_DIR:-./data}:/data:ro
+      - ${OUTPUT_DIR:-./output}:/output
+      - ${CACHE_DIR:-./cache}:/cache
+    command: >
+      python /app/ANIMAL-SPOT/train_binary_detector.py
+        --data_dir /data
+        --output_dir /output
+        --cache_dir /cache
+        --max_epochs ${MAX_EPOCHS:-100}
+        --batch_size ${BATCH_SIZE:-64}
+        --lr ${LEARNING_RATE:-3e-4}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # ============================================
   # Optuna Hyperparameter Tuning Service
   # ============================================
   optuna:
@@ -154,13 +186,17 @@ services:
 #    AUDIO_DIR=/path/to/audio MODEL_DIR=/path/to/models OUTPUT_DIR=/path/to/output \
 #      docker-compose up predict
 #
-# 3. Optuna tuning:
+# 3. Binary detector training:
+#    DATA_DIR=/path/to/data OUTPUT_DIR=/path/to/output \
+#      docker-compose up train-binary
+#
+# 4. Optuna tuning:
 #    DATA_DIR=/path/to/data OUTPUT_DIR=/path/to/output NUM_CLASSES=13 N_TRIALS=50 \
 #      docker-compose up optuna
 #
-# 4. TensorBoard (monitoring):
+# 5. TensorBoard (monitoring):
 #    OUTPUT_DIR=/path/to/output docker-compose up tensorboard
 #    Then open http://localhost:6006
 #
-# 5. Build image:
+# 6. Build image:
 #    docker-compose build
