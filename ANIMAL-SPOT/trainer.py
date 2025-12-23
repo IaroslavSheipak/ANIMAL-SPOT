@@ -102,6 +102,7 @@ class Trainer:
         val_metric: Union[int, str] = "loss",
         val_metric_mode: str = "min",
         start_epoch=0,
+        scheduler_step_per_batch: bool = False,
     ):
         self.logger.info("Init model on device '{}'".format(device))
         self.model = self.model.to(device)
@@ -156,7 +157,8 @@ class Trainer:
                 val_comp = operator.gt
             for epoch in range(start_epoch, n_epochs):
                 self.train_epoch(
-                    epoch, train_loader, loss_fn, optimizer, metrics, device
+                    epoch, train_loader, loss_fn, optimizer, metrics, device,
+                    scheduler=scheduler if scheduler_step_per_batch else None
                 )
                 if epoch % val_interval == 0 or epoch == n_epochs - 1:
                     val_loss = self.test_epoch(
@@ -183,7 +185,9 @@ class Trainer:
                             "classes": train_loader.dataset.class_dist_dict
                         }
                     )
-                    scheduler.step(val_result)
+                    # Only step scheduler here if using ReduceLROnPlateau (not per-batch)
+                    if not scheduler_step_per_batch:
+                        scheduler.step(val_result)
                     if early_stopping.step(val_result):
                         self.logger.info(
                             "No improvment over the last {} epochs. Stopping.".format(
@@ -221,7 +225,7 @@ class Trainer:
     """
     Training of one epoch using pre-extracted training data, loss function, optimizer, and respective metrics
     """
-    def train_epoch(self, epoch, train_loader, loss_fn, optimizer, metrics, device):
+    def train_epoch(self, epoch, train_loader, loss_fn, optimizer, metrics, device, scheduler=None):
         self.logger.debug("train|{}|start".format(epoch))
         if isinstance(metrics, list):
             for metric in metrics:
@@ -260,6 +264,10 @@ class Trainer:
             loss.backward()
 
             optimizer.step()
+
+            # Step scheduler per batch if using OneCycleLR
+            if scheduler is not None:
+                scheduler.step()
 
             epoch_loss.update(loss)
 

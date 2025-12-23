@@ -20,6 +20,8 @@ import torch
 import torch.onnx
 import torch.nn as nn
 import torch.optim as optim
+from torch.utils.data import WeightedRandomSampler
+from torch.optim.lr_scheduler import OneCycleLR
 
 from data.audiodataset import (
     get_audio_files_from_dir,
@@ -177,13 +179,52 @@ parser.add_argument(
     help="Early stopping (stop training) after N/epochs_per_eval epochs without any improvements on the validation set.",
 )
 
+""" Class balancing parameters """
+parser.add_argument(
+    "--weighted_sampling",
+    action="store_true",
+    help="Enable weighted sampling to balance class distribution during training.",
+)
+
+parser.add_argument(
+    "--sampling_strategy",
+    type=str,
+    default="sqrt_inverse_freq",
+    choices=["inverse_freq", "sqrt_inverse_freq", "effective_num"],
+    help="Strategy for computing sample weights: inverse_freq, sqrt_inverse_freq (default), effective_num.",
+)
+
+parser.add_argument(
+    "--rare_class_boost",
+    type=float,
+    default=1.5,
+    help="Boost factor for rare classes (classes with < 5%% of samples). Default: 1.5",
+)
+
+""" Loss function parameters """
+parser.add_argument(
+    "--label_smoothing",
+    type=float,
+    default=0.0,
+    help="Label smoothing factor (0.0 = no smoothing, 0.1 = recommended). Default: 0.0",
+)
+
+""" Scheduler parameters """
+parser.add_argument(
+    "--scheduler",
+    type=str,
+    default="plateau",
+    choices=["plateau", "onecycle"],
+    help="Learning rate scheduler: plateau (ReduceLROnPlateau) or onecycle (OneCycleLR). Default: plateau",
+)
+
 """ Input parameters """
 parser.add_argument(
     "--filter_broken_audio", action="store_true", help="Filter files which are below a minimum loudness of 1e-3 (float32)."
 )
 
 parser.add_argument(
-    "--sequence_len", type=int, default=1280, help="Sequence length in ms."
+    "--sequence_len", type=int, default=1000, help="Sequence length in ms."
 )
 
 parser.add_argument(
@@ -225,13 +266,13 @@ parser.add_argument(
 parser.add_argument(
     "--n_fft",
     type=int,
-    default=4096,
+    default=1024,
     help="FFT size.")
 
 parser.add_argument(
     "--hop_length",
     type=int,
-    default=441,
+    default=172,
     help="FFT hop length.")
 
 parser.add_argument(
@@ -320,7 +361,7 @@ def get_audio_files():
 """
 Save the trained model and corresponding options.
 """
-def save_model(model, encoder, encoderOpts, classifier, classifierOpts, dataOpts, path, class_dist_dict, use_jit=False, min_max=False):
+def save_model(model, encoder, encoderOpts, classifier, classifierOpts, dataOpts, path, class_dist_dict, use_jit=False, min_max=False, backbone="resnet"):
     model = model.cpu()
     encoder = encoder.cpu()
     classifier = classifier.cpu()
@@ -328,6 +369,7 @@ def save_model(model, encoder, encoderOpts, classifier, classifierOpts, dataOpts
     classifier_state_dict = classifier.state_dict()
 
     save_dict = {
+        "backbone": backbone,
         "encoderOpts": encoderOpts,
         "classifierOpts": classifierOpts,
         "dataOpts": dataOpts,
@@ -383,6 +425,50 @@ def get_classes(database):
             class_name = file.split("/")[-1].split("-", 1)[0]
         classes.add(class_name)
     return sorted(list(classes))
+
+
+"""
+Compute sample weights for weighted sampling based on class distribution.
+"""
+def compute_sample_weights(dataset, strategy="sqrt_inverse_freq", rare_class_boost=1.5):
+    class_counts = {}
+    sample_labels = []
+
+    # Count samples per class
+    for idx in range(len(dataset)):
+        _, meta = dataset[idx]
+        label = meta['call'].item() if hasattr(meta['call'], 'item') else meta['call']
+        sample_labels.append(label)
+        class_counts[label] = class_counts.get(label, 0) + 1
+
+    total_samples = len(dataset)
+    num_classes = len(class_counts)
+
+    # Compute class weights based on strategy
+    if strategy == "inverse_freq":
+        class_weights = {c: total_samples / (num_classes * count) for c, count in class_counts.items()}
+    elif strategy == "sqrt_inverse_freq":
+        class_weights = {c: math.sqrt(total_samples / count) for c, count in class_counts.items()}
+    elif strategy == "effective_num":
+        beta = 0.9999
+        class_weights = {c: (1 - beta) / (1 - math.pow(beta, count)) for c, count in class_counts.items()}
+    else:
+        class_weights = {c: 1.0 for c in class_counts.keys()}
+
+    # Apply rare class boost (for classes with < 5% of samples)
+    threshold = total_samples * 0.05
+    for c, count in class_counts.items():
+        if count < threshold:
+            class_weights[c] *= rare_class_boost
+
+    # Normalize weights
+    max_weight = max(class_weights.values())
+    class_weights = {c: w / max_weight for c, w in class_weights.items()}
+
+    # Create sample weights
+    sample_weights = [class_weights[label] for label in sample_labels]
+
+    return sample_weights, class_counts, class_weights
 
 
 """
@@ -479,17 +565,41 @@ if __name__ == "__main__":
         for split in split_fracs.keys()
     }
 
-    dataloaders = {
-        split: torch.utils.data.DataLoader(
-            datasets[split],
-            batch_size=ARGS.batch_size,
-            shuffle=True,
-            num_workers=ARGS.num_workers,
-            drop_last=False if split == "val" or split == "test" else True,
-            pin_memory=True,
-        )
-        for split in split_fracs.keys()
-    }
+    # Create dataloaders with optional weighted sampling
+    dataloaders = {}
+    for split in split_fracs.keys():
+        if split == "train" and ARGS.weighted_sampling:
+            log.info("Computing sample weights for weighted sampling...")
+            sample_weights, class_counts, class_weights = compute_sample_weights(
+                datasets[split],
+                strategy=ARGS.sampling_strategy,
+                rare_class_boost=ARGS.rare_class_boost
+            )
+            log.info(f"Class distribution: {class_counts}")
+            log.info(f"Class weights: {class_weights}")
+
+            sampler = WeightedRandomSampler(
+                weights=torch.DoubleTensor(sample_weights),
+                num_samples=len(datasets[split]),
+                replacement=True
+            )
+            dataloaders[split] = torch.utils.data.DataLoader(
+                datasets[split],
+                batch_size=ARGS.batch_size,
+                sampler=sampler,
+                num_workers=ARGS.num_workers,
+                drop_last=True,
+                pin_memory=True,
+            )
+        else:
+            dataloaders[split] = torch.utils.data.DataLoader(
+                datasets[split],
+                batch_size=ARGS.batch_size,
+                shuffle=(split == "train"),
+                num_workers=ARGS.num_workers,
+                drop_last=False if split in ["val", "test"] else True,
+                pin_memory=True,
+            )
 
     model = nn.Sequential(
         OrderedDict([("encoder", encoder), ("classifier", classifier)])
@@ -532,20 +642,45 @@ if __name__ == "__main__":
     )
 
     metric_mode = "max"
-    lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer,
-        mode=metric_mode,
-        patience=patience_lr,
-        factor=ARGS.lr_decay_factor,
-        threshold=1e-3,
-        threshold_mode="abs",
-    )
+
+    # Set up learning rate scheduler
+    if ARGS.scheduler == "onecycle":
+        steps_per_epoch = len(dataloaders["train"])
+        total_steps = steps_per_epoch * ARGS.max_train_epochs
+        lr_scheduler = OneCycleLR(
+            optimizer,
+            max_lr=ARGS.lr * 10,  # Peak LR is 10x base LR
+            total_steps=total_steps,
+            pct_start=0.3,
+            anneal_strategy='cos',
+            div_factor=10,
+            final_div_factor=100
+        )
+        log.info(f"Using OneCycleLR scheduler (max_lr={ARGS.lr * 10}, total_steps={total_steps})")
+    else:
+        lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer,
+            mode=metric_mode,
+            patience=patience_lr,
+            factor=ARGS.lr_decay_factor,
+            threshold=1e-3,
+            threshold_mode="abs",
+        )
+        log.info("Using ReduceLROnPlateau scheduler")
+
+    # Set up loss function with optional label smoothing
+    if ARGS.label_smoothing > 0:
+        loss_fn = nn.CrossEntropyLoss(label_smoothing=ARGS.label_smoothing)
+        log.info(f"Using CrossEntropyLoss with label_smoothing={ARGS.label_smoothing}")
+    else:
+        loss_fn = nn.CrossEntropyLoss()
+        log.info("Using CrossEntropyLoss without label smoothing")
 
     model = trainer.fit(
         dataloaders["train"],
         dataloaders["val"],
         dataloaders["test"],
-        loss_fn=nn.CrossEntropyLoss(),
+        loss_fn=loss_fn,
         optimizer=optimizer,
         scheduler=lr_scheduler,
         n_epochs=ARGS.max_train_epochs,
@@ -555,6 +690,7 @@ if __name__ == "__main__":
         metrics=metrics,
         val_metric="accuracy",
         val_metric_mode=metric_mode,
+        scheduler_step_per_batch=(ARGS.scheduler == "onecycle"),
     )
 
     encoder = model.encoder
@@ -565,6 +701,6 @@ if __name__ == "__main__":
 
     class_dist_dict = datasets["train"].class_dist_dict
 
-    save_model(model, encoder, encoderOpts, classifier, classifierOpts, dataOpts, path, class_dist_dict, use_jit=ARGS.jit_save, min_max=ARGS.min_max_norm)
+    save_model(model, encoder, encoderOpts, classifier, classifierOpts, dataOpts, path, class_dist_dict, use_jit=ARGS.jit_save, min_max=ARGS.min_max_norm, backbone=ARGS.backbone)
 
     log.close()
