@@ -23,6 +23,12 @@ import torch.optim as optim
 from torch.utils.data import WeightedRandomSampler
 from torch.optim.lr_scheduler import OneCycleLR
 
+# CUDA optimizations for faster training
+if torch.cuda.is_available():
+    torch.backends.cudnn.benchmark = True  # Auto-tune cuDNN for faster convolutions
+    torch.backends.cuda.matmul.allow_tf32 = True  # Enable TF32 for faster matrix multiplications
+    torch.backends.cudnn.allow_tf32 = True  # Enable TF32 for cuDNN
+
 from data.audiodataset import (
     get_audio_files_from_dir,
     get_broken_audio_files,
@@ -575,6 +581,17 @@ if __name__ == "__main__":
     }
 
     # Create dataloaders with optional weighted sampling
+    # Configure DataLoader kwargs for faster data loading
+    loader_kwargs = {
+        'batch_size': ARGS.batch_size,
+        'num_workers': ARGS.num_workers,
+        'pin_memory': True,
+    }
+    # Enable persistent workers and prefetching for faster data loading when using multiple workers
+    if ARGS.num_workers > 0:
+        loader_kwargs['persistent_workers'] = True
+        loader_kwargs['prefetch_factor'] = 4
+
     dataloaders = {}
     for split in split_fracs.keys():
         if split == "train" and ARGS.weighted_sampling:
@@ -594,20 +611,16 @@ if __name__ == "__main__":
             )
             dataloaders[split] = torch.utils.data.DataLoader(
                 datasets[split],
-                batch_size=ARGS.batch_size,
                 sampler=sampler,
-                num_workers=ARGS.num_workers,
                 drop_last=True,
-                pin_memory=True,
+                **loader_kwargs,
             )
         else:
             dataloaders[split] = torch.utils.data.DataLoader(
                 datasets[split],
-                batch_size=ARGS.batch_size,
                 shuffle=(split == "train"),
-                num_workers=ARGS.num_workers,
                 drop_last=False if split in ["val", "test"] else True,
-                pin_memory=True,
+                **loader_kwargs,
             )
 
     model = nn.Sequential(

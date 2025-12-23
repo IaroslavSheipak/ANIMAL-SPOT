@@ -10,6 +10,7 @@ import io
 import os
 import sys
 import math
+import hashlib
 import resampy
 import numpy as np
 import scipy.fftpack
@@ -19,6 +20,7 @@ import torch
 import torch.nn.functional as F
 
 from typing import List
+from pathlib import Path
 from multiprocessing import Lock
 from utils.FileIO import AsyncFileReader, AsyncFileWriter
 
@@ -191,6 +193,49 @@ class CachedSpectrogram(object):
         for key, value in self.meta.items():
             spec_dict[key] = value
         torch.save(spec_dict, fn)
+
+
+"""
+Simple file-based spectrogram cache that is multiprocessing-safe.
+Uses numpy .npy files for storage, which can be safely read/written by multiple processes.
+"""
+class SimpleSpectrogramCache(object):
+    def __init__(self, cache_dir, spec_transform, **meta):
+        self.cache_dir = Path(cache_dir)
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.transform = spec_transform
+        self.meta = meta
+        # Create a config hash from the metadata for cache invalidation
+        config_str = "_".join(f"{k}={v}" for k, v in sorted(meta.items()))
+        self.config_hash = hashlib.md5(config_str.encode()).hexdigest()[:8]
+
+    def get_cache_path(self, file_name):
+        """Generate cache path from audio file path."""
+        basename = Path(file_name).stem
+        return self.cache_dir / f"{basename}_{self.config_hash}.npy"
+
+    def __call__(self, fn):
+        """Load spectrogram from cache or compute and cache it."""
+        cache_path = self.get_cache_path(fn)
+
+        # Try to load from cache
+        if cache_path.exists():
+            try:
+                spec_data = np.load(cache_path, allow_pickle=False)
+                return torch.from_numpy(spec_data).float()
+            except Exception:
+                pass  # Cache corrupted, recompute
+
+        # Compute spectrogram
+        spec = self.transform(fn)
+
+        # Save to cache (numpy format is multiprocessing-safe)
+        try:
+            np.save(cache_path, spec.numpy())
+        except Exception:
+            pass  # Ignore cache write errors
+
+        return spec
 
 
 """Normalize a spectrogram by subtracting mean and dividing by std."""
