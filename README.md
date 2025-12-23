@@ -1,5 +1,6 @@
 # ANIMAL-SPOT enables animal-independent signal detection and classification using deep learning
 
+- [Quick Start](#quick-start)
 - [General Description](#general-description)
 - [Reference](#reference)
 - [License](#license)
@@ -11,6 +12,124 @@
 - [Network Prediction](#network-prediction)
 - [Network Evaluation](#network-evaluation)
 - [FAQ](#FAQ)
+
+# Quick Start
+
+## Installation
+
+```bash
+# Clone repository
+git clone https://github.com/IaroslavSheipak/ANIMAL-SPOT.git
+cd ANIMAL-SPOT
+
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # Linux/Mac
+# or: venv\Scripts\activate  # Windows
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+## Training (Best Configuration - 99.49% Accuracy)
+
+```bash
+# Using the optimized training script
+cd TRAINING
+./train_best_config.sh
+
+# Or manually with optimal parameters
+python ANIMAL-SPOT/main.py \
+    --data_dir /path/to/data \
+    --model_dir ./output/model \
+    --checkpoint_dir ./output/checkpoints \
+    --log_dir ./output/logs \
+    --summary_dir ./output/summaries \
+    --cache_dir ./cache \
+    --backbone resnet \
+    --batch_size 64 \
+    --lr 3e-4 \
+    --scheduler onecycle \
+    --label_smoothing 0.1 \
+    --weighted_sampling \
+    --sampling_strategy sqrt_inverse_freq \
+    --rare_class_boost 1.5 \
+    --sequence_len 1000 \
+    --n_fft 1024 \
+    --hop_length 172 \
+    --max_train_epochs 100 \
+    --early_stopping_patience_epochs 25 \
+    --augmentation \
+    --min_max_norm \
+    --num_workers 8
+```
+
+## Training (Alternative Configurations)
+
+```bash
+# ResNet-18 baseline
+cd TRAINING && ./train_resnet18.sh
+
+# ConvNeXt with pretrained weights
+cd TRAINING && ./train_convnext_pretrained.sh
+```
+
+## Prediction
+
+```bash
+python ANIMAL-SPOT/predict.py \
+    --model /path/to/ANIMAL-SPOT.pk \
+    --audio_dir /path/to/audio \
+    --output_dir ./predictions \
+    --threshold 0.85
+```
+
+## Hyperparameter Tuning (Optuna)
+
+```bash
+python ANIMAL-SPOT/optuna_tuning.py \
+    --data_dir /path/to/data \
+    --output_dir ./optuna_results \
+    --n_trials 50 \
+    --max_epochs 30
+```
+
+## Docker Usage
+
+```bash
+# Build image
+docker-compose build
+
+# Multi-class training
+DATA_DIR=/path/to/data OUTPUT_DIR=/path/to/output NUM_CLASSES=13 \
+    docker-compose up train
+
+# Binary detector training
+DATA_DIR=/path/to/data OUTPUT_DIR=/path/to/output \
+    docker-compose up train-binary
+
+# Prediction
+AUDIO_DIR=/path/to/audio MODEL_DIR=/path/to/models OUTPUT_DIR=/path/to/output \
+    docker-compose up predict
+
+# Hyperparameter tuning
+DATA_DIR=/path/to/data OUTPUT_DIR=/path/to/output N_TRIALS=50 \
+    docker-compose up optuna
+
+# TensorBoard monitoring
+OUTPUT_DIR=/path/to/output docker-compose up tensorboard
+# Then open http://localhost:6006
+```
+
+## Monitoring Training
+
+```bash
+tensorboard --logdir /path/to/summaries/
+```
+
+For detailed documentation, see [CHANGES.md](CHANGES.md).
+
+---
 
 # General Description
 ANIMAL-SPOT is an animal-independent deep learning software framework that addresses various bioacoustic signal identifcation scenarios, such as: (1) binary target/noise detection, (2) multi-class species identification, and (3) multi-class call type recognition. ANIMAL-SPOT is a ResNet18-based Convolutional Neural Network (CNN), taking inspiration from ORCA-SPOT, a ResNet18-based CNN applied to killer whale sound type versus background noise detection (see https://www.nature.com/articles/s41598-019-47335-w). ANIMAL-SPOT's performance
