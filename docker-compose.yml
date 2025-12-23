@@ -79,38 +79,6 @@ services:
               capabilities: [gpu]
 
   # ============================================
-  # Two-Stage Prediction Service
-  # ============================================
-  two-stage-predict:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: animal-spot:latest
-    container_name: animal-spot-two-stage
-    runtime: nvidia
-    environment:
-      - NVIDIA_VISIBLE_DEVICES=all
-    volumes:
-      - ${AUDIO_DIR:-./audio}:/audio:ro
-      - ${MODEL_DIR:-./models}:/models:ro
-      - ${OUTPUT_DIR:-./output}:/output
-    command: >
-      python /app/ANIMAL-SPOT/two_stage_predict.py
-        --binary_model /models/${BINARY_MODEL:-binary_detector.pk}
-        --multiclass_model /models/${MULTICLASS_MODEL:-multiclass.pk}
-        --input_dir /audio
-        --output_dir /output
-        --binary_threshold ${BINARY_THRESHOLD:-0.5}
-        --multiclass_threshold ${MULTICLASS_THRESHOLD:-0.85}
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-
-  # ============================================
   # Optuna Hyperparameter Tuning Service
   # ============================================
   optuna:
@@ -186,17 +154,13 @@ services:
 #    AUDIO_DIR=/path/to/audio MODEL_DIR=/path/to/models OUTPUT_DIR=/path/to/output \
 #      docker-compose up predict
 #
-# 3. Two-stage prediction:
-#    AUDIO_DIR=/path/to/audio MODEL_DIR=/path/to/models OUTPUT_DIR=/path/to/output \
-#      docker-compose up two-stage-predict
-#
-# 4. Optuna tuning:
+# 3. Optuna tuning:
 #    DATA_DIR=/path/to/data OUTPUT_DIR=/path/to/output NUM_CLASSES=13 N_TRIALS=50 \
 #      docker-compose up optuna
 #
-# 5. TensorBoard (monitoring):
+# 4. TensorBoard (monitoring):
 #    OUTPUT_DIR=/path/to/output docker-compose up tensorboard
 #    Then open http://localhost:6006
 #
-# 6. Build image:
+# 5. Build image:
 #    docker-compose build

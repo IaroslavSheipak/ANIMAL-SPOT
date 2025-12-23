@@ -8,9 +8,9 @@ set -e  # Exit on error
 # Activate virtual environment
 source ../animal_spot_env/bin/activate
 
-# Set paths
-DATA_DIR="/mnt/c/Users/Iaroslav/CETACEANS/training_data"
-OUTPUT_BASE="/mnt/c/Users/Iaroslav/CETACEANS/outputs_convnext_pretrained_$(date +%Y-%m-%d_%H-%M)"
+# Set paths (use environment variables or defaults)
+DATA_DIR="${DATA_DIR:-./data}"
+OUTPUT_BASE="${OUTPUT_DIR:-./outputs}/convnext_pretrained_$(date +%Y-%m-%d_%H-%M)"
 
 # Create output directories
 mkdir -p $OUTPUT_BASE/model
