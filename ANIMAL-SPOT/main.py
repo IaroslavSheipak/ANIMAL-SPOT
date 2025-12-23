@@ -656,16 +656,20 @@ if __name__ == "__main__":
     if ARGS.scheduler == "onecycle":
         steps_per_epoch = len(dataloaders["train"])
         total_steps = steps_per_epoch * ARGS.max_train_epochs
+        # For OneCycleLR, use max_lr = 10x the base LR (before batch scaling)
+        # ARGS.lr was already multiplied by batch_size, so divide it back
+        base_lr = ARGS.lr / ARGS.batch_size
+        max_lr = base_lr * 10  # 3e-4 * 10 = 3e-3
         lr_scheduler = OneCycleLR(
             optimizer,
-            max_lr=ARGS.lr * 10,  # Peak LR is 10x base LR
+            max_lr=max_lr,
             total_steps=total_steps,
             pct_start=0.3,
             anneal_strategy='cos',
             div_factor=10,
             final_div_factor=100
         )
-        log.info(f"Using OneCycleLR scheduler (max_lr={ARGS.lr * 10}, total_steps={total_steps})")
+        log.info(f"Using OneCycleLR scheduler (max_lr={max_lr}, total_steps={total_steps})")
     else:
         lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(
             optimizer,
