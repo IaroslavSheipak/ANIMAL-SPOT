@@ -429,29 +429,38 @@ def get_classes(database):
 
 """
 Compute sample weights for weighted sampling based on class distribution.
+Uses class_dist_dict from dataset to avoid loading audio files.
 """
 def compute_sample_weights(dataset, strategy="sqrt_inverse_freq", rare_class_boost=1.5):
-    class_counts = {}
+    # Get class distribution from dataset (already computed during init)
+    class_dist_dict = dataset.class_dist_dict  # Maps class_name -> class_idx
+
+    # Count samples per class from filenames (fast, no audio loading)
+    class_counts = {idx: 0 for idx in class_dist_dict.values()}
     sample_labels = []
 
-    # Count samples per class
-    for idx in range(len(dataset)):
-        _, meta = dataset[idx]
-        label = meta['call'].item() if hasattr(meta['call'], 'item') else meta['call']
-        sample_labels.append(label)
-        class_counts[label] = class_counts.get(label, 0) + 1
+    for file_name in dataset.file_names:
+        # Extract class name from filename (CLASS-label_id_year_tape_start_end.wav)
+        if platform.system() == "Windows":
+            basename = file_name.split("\\")[-1]
+        else:
+            basename = file_name.split("/")[-1]
+        class_name = basename.split("-", 1)[0]
+        class_idx = class_dist_dict.get(class_name, 0)
+        sample_labels.append(class_idx)
+        class_counts[class_idx] = class_counts.get(class_idx, 0) + 1
 
     total_samples = len(dataset)
     num_classes = len(class_counts)
 
     # Compute class weights based on strategy
     if strategy == "inverse_freq":
-        class_weights = {c: total_samples / (num_classes * count) for c, count in class_counts.items()}
+        class_weights = {c: total_samples / (num_classes * max(count, 1)) for c, count in class_counts.items()}
     elif strategy == "sqrt_inverse_freq":
-        class_weights = {c: math.sqrt(total_samples / count) for c, count in class_counts.items()}
+        class_weights = {c: math.sqrt(total_samples / max(count, 1)) for c, count in class_counts.items()}
     elif strategy == "effective_num":
         beta = 0.9999
-        class_weights = {c: (1 - beta) / (1 - math.pow(beta, count)) for c, count in class_counts.items()}
+        class_weights = {c: (1 - beta) / (1 - math.pow(beta, max(count, 1))) for c, count in class_counts.items()}
     else:
         class_weights = {c: 1.0 for c in class_counts.keys()}
 
@@ -462,7 +471,7 @@ def compute_sample_weights(dataset, strategy="sqrt_inverse_freq", rare_class_boo
             class_weights[c] *= rare_class_boost
 
     # Normalize weights
-    max_weight = max(class_weights.values())
+    max_weight = max(class_weights.values()) if class_weights else 1.0
     class_weights = {c: w / max_weight for c, w in class_weights.items()}
 
     # Create sample weights
