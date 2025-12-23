@@ -528,12 +528,14 @@ class Dataset(AudioDataset):
         if cache_dir is None:
             self.t_spectrogram = T.Compose(spec_transforms)
         else:
-            self.t_spectrogram = T.CachedSpectrogram(
+            # Use SimpleSpectrogramCache for multiprocessing-safe caching
+            # This allows num_workers > 0 in DataLoader
+            self.t_spectrogram = T.SimpleSpectrogramCache(
                 cache_dir=cache_dir,
                 spec_transform=T.Compose(spec_transforms),
+                sr=sr,
                 n_fft=n_fft,
                 hop_length=hop_length,
-                file_reader=self.file_reader,
             )
 
         if augmentation:

@@ -7,7 +7,24 @@ This fork of ANIMAL-SPOT adds two major improvements for multi-class cetacean vo
 1. **ConvNeXt Tiny backbone** with ImageNet pretrained weights (transfer learning)
 2. **Per-class accuracy metrics** for detailed performance monitoring
 
-These changes improve overall accuracy from **97.8% → 98.5%** and especially benefit rare classes (K21, K27, K14).
+These changes improve overall accuracy from **97.8% → 98.9%** and especially benefit rare classes (K21, K27, K14).
+
+## Breaking Changes
+
+**Default parameter changes (may affect existing workflows):**
+
+| Parameter | Old Default | New Default | Reason |
+|-----------|-------------|-------------|--------|
+| `n_fft` | 4096 | 1024 | Better temporal resolution for short vocalizations |
+| `hop_length` | 441 | 172 | Finer time steps for improved accuracy |
+| `sequence_len` | 1280 | 1000 | Optimized for cetacean call durations |
+
+**Migration:** If you have existing configs, explicitly set these parameters to maintain previous behavior:
+```bash
+python main.py --n_fft 4096 --hop_length 441 --sequence_len 1280 [other args...]
+```
+
+**Cache invalidation:** The spectrogram cache will automatically regenerate due to parameter hash changes.
 
 ## New Features
 
@@ -44,26 +61,138 @@ Added detailed per-class accuracy tracking for multi-class classification:
 - Monitor training progress for imbalanced datasets
 - Available in TensorBoard under `per_class_accuracy/` tab
 
-### 3. Training Scripts
+### 3. Training Optimizations
+
+**Weighted Sampling** for imbalanced datasets:
+```bash
+python main.py --weighted_sampling --sampling_strategy sqrt_inverse_freq [other args...]
+```
+
+Available strategies:
+- `inverse_freq` - Weight inversely proportional to class frequency
+- `sqrt_inverse_freq` - Square root of inverse frequency (recommended)
+- `effective_num` - Effective number of samples method
+
+**OneCycleLR Scheduler** with per-batch stepping:
+```bash
+python main.py --scheduler onecycle --lr 3e-4 [other args...]
+```
+
+**Label Smoothing** for better generalization:
+```bash
+python main.py --label_smoothing 0.1 [other args...]
+```
+
+### 4. Multiprocessing-Safe Caching
+
+**SimpleSpectrogramCache** enables `num_workers > 0`:
+- Uses `.npy` format instead of pickle (multiprocessing-safe)
+- Automatic cache invalidation via parameter hash
+- 27x speedup: 550s → 20s per epoch after cache warmup
+
+```bash
+python main.py --cache_dir ./cache --num_workers 8 [other args...]
+```
+
+### 5. Optuna Hyperparameter Tuning
+
+Automatic hyperparameter optimization:
+```bash
+python optuna_tuning.py --data_dir ./data --n_trials 50 --max_epochs 30 [other args...]
+```
+
+### 6. Training Scripts
 
 Added convenient training scripts in `TRAINING/`:
 
-- `train_resnet18.sh` - ResNet-18 baseline (vanilla ANIMAL-SPOT)
+- `train_best_config.sh` - **Recommended** - Best configuration (99.49% accuracy)
+- `train_resnet18.sh` - ResNet-18 baseline for comparison
 - `train_convnext_pretrained.sh` - ConvNeXt with pretrained weights
+
+## Best Configuration (99.49% Test Accuracy)
+
+The optimal configuration discovered through extensive hyperparameter optimization:
+
+```bash
+python main.py \
+    --backbone resnet \
+    --resnet 18 \
+    --batch_size 64 \
+    --lr 3e-4 \
+    --scheduler onecycle \
+    --label_smoothing 0.1 \
+    --weighted_sampling \
+    --sampling_strategy sqrt_inverse_freq \
+    --rare_class_boost 1.5 \
+    --sequence_len 1000 \
+    --n_fft 1024 \
+    --hop_length 172 \
+    --n_freq_bins 256 \
+    --fmin 500 \
+    --fmax 10000 \
+    --freq_compression linear \
+    --max_train_epochs 100 \
+    --early_stopping_patience_epochs 25 \
+    --augmentation \
+    --min_max_norm \
+    --num_workers 8 \
+    --cache_dir ./cache \
+    --data_dir /path/to/data \
+    --model_dir ./output/model \
+    --checkpoint_dir ./output/checkpoints \
+    --log_dir ./output/logs \
+    --summary_dir ./output/summaries
+```
+
+### Per-Class Results (Best Config)
+
+| Class | Accuracy | Samples | Notes |
+|-------|----------|---------|-------|
+| K1    | 99.5%    | 1849    | Excellent |
+| K3    | 97.6%    | 447     | Good |
+| K4    | 98.1%    | 658     | Good |
+| K5    | 99.7%    | 1399    | Excellent |
+| K7    | 100.0%   | 816     | Perfect |
+| K10   | 98.1%    | 252     | Good |
+| K12   | 96.2%    | 287     | Improved (+10.7% from baseline) |
+| K13   | 100.0%   | 123     | Perfect |
+| K14   | 83.3%    | 66      | Challenging (+20.8% from baseline) |
+| K17   | 100.0%   | 216     | Perfect |
+| K21   | 93.9%    | 146     | Good |
+| K27   | 100.0%   | 53      | Perfect (rare class) |
+| noise | 99.9%    | 8422    | Excellent |
+
+### Key Optimization Findings
+
+**What works:**
+- `batch_size=64` optimal for both ResNet18 and ConvNeXt
+- `sequence_len=1000ms` is optimal (longer sequences provide no benefit)
+- `sqrt_inverse_freq` sampling with 1.5x rare class boost
+- `label_smoothing=0.1` consistently improves generalization
+- `OneCycleLR` scheduler outperforms plateau-based schedulers
+- ResNet18 outperforms ResNet34 and ConvNeXt for cetacean spectrograms
+
+**What doesn't work:**
+- Focal loss - causes noise class collapse
+- MixUp/SpecAugment - training instability on spectrograms
+- Aggressive class weighting (3x+) - hurts overall accuracy
+- Longer sequences (1200ms, 1500ms) - no improvement
+- ImageNet pretraining - scratch training better for spectrograms
 
 ## Results
 
 ### Cetacean Dataset (13 classes, 21,053 samples)
 
-| Model | Overall Accuracy | Rare Classes (K21/K27/K14) |
-|-------|------------------|----------------------------|
-| **ResNet-18 (baseline)** | 97.8% | 65-75% |
-| **ConvNeXt Pretrained** | 98.5% | 70-85% |
+| Model | Val Accuracy | Test Accuracy | Training Time |
+|-------|--------------|---------------|---------------|
+| **ResNet-18 (baseline)** | 97.8% | 97.8% | ~35 min |
+| **ConvNeXt Pretrained** | 98.9% | 98.2% | ~24 min |
+| **ResNet-18 + Best Config** | 99.5% | **99.49%** | ~11 min |
 
-**Per-Class Results (ConvNeXt Pretrained):**
-- Excellent (>95%): K1 (100%), noise (99.7%), K5 (99.4%), K7 (97.7%)
-- Good (80-95%): K17 (94.1%), K10 (93.3%), K4 (92.3%), K13 (84.6%), K12 (82.9%)
-- Challenging (<80%): K14 (75%), K27 (71.4%), K21 (70%)
+**Per-Class Results (ConvNeXt Pretrained, Test Set):**
+- Excellent (>95%): K1 (99.3%), noise (99.3%), K5 (97.1%), K7 (99.5%), K4 (97.2%), K10 (100%), K13 (100%), K17 (100%), K27 (100%)
+- Good (90-95%): K3 (91.6%), K21 (90.9%)
+- Challenging (<90%): K14 (83.3%), K12 (78.5%)
 
 ## Usage
 
@@ -173,24 +302,37 @@ K27: 71.4%
 ## File Changes Summary
 
 **New Files:**
-- `models/convnext_encoder.py` (235 lines)
-- `TRAINING/train_resnet18.sh` (55 lines)
-- `TRAINING/train_convnext_pretrained.sh` (63 lines)
+- `models/convnext_encoder.py` (+62 lines) - ConvNeXt Tiny backbone
+- `utils/metrics.py` (+56 lines) - PerClassAccuracy metric
+- `optuna_tuning.py` (+449 lines) - Hyperparameter optimization
+- `train_binary_detector.py` (+408 lines) - Binary detector training
+- `TRAINING/train_best_config.sh` (+67 lines) - **Best configuration** (99.49% accuracy)
+- `TRAINING/train_resnet18.sh` (+63 lines) - ResNet baseline script
+- `TRAINING/train_convnext_pretrained.sh` (+66 lines) - ConvNeXt training script
+- `Dockerfile` (+99 lines) - Container support
+- `docker-compose.yml` (+202 lines) - Multi-service configuration
 - `CHANGES.md` (this file)
 
 **Modified Files:**
-- `main.py` - Added backbone selection logic (+50 lines)
-- `trainer.py` - Added per-class logging (+30 lines)
-- `utils/metrics.py` - Added PerClassAccuracy class (+60 lines)
+- `main.py` (+248 lines) - Weighted sampling, OneCycleLR, label smoothing, backbone selection
+- `trainer.py` (+40 lines) - Per-batch scheduler stepping, per-class logging
+- `data/transforms.py` (+50 lines) - SimpleSpectrogramCache (multiprocessing-safe)
+- `data/audiodataset.py` (+6 lines) - Use new cache
+- `EVALUATION/start_evaluation.py` (+159 lines) - Enhanced evaluation
 
-**Total Changes:** ~463 lines added
+**Infrastructure:**
+- `requirements.txt` (+35 lines) - Updated dependencies
+- `.gitignore` - Comprehensive Python/ML patterns
+
+**Total Changes:** ~1,943 lines added (after removing orphaned code)
 
 ## Compatibility
 
-- ✅ Backward compatible with original ANIMAL-SPOT
-- ✅ Default behavior unchanged (`--backbone resnet` is default)
-- ✅ All existing config files work as before
+- ✅ Backward compatible with original ANIMAL-SPOT (with explicit old defaults)
+- ✅ Default backbone unchanged (`--backbone resnet` is default)
+- ⚠️ Default spectrogram params changed (see Breaking Changes section)
 - ✅ Per-class metrics only enabled for multi-class (num_classes > 2)
+- ✅ Spectrogram cache auto-invalidates when parameters change
 
 ## Dependencies
 
@@ -204,11 +346,12 @@ pip install torchvision>=0.13.0
 
 ## Future Work
 
-- [ ] Add class weighting support for rare classes
+- [x] ~~Add class weighting support for rare classes~~ (Done: `--weighted_sampling`)
 - [ ] Implement focal loss for imbalanced datasets
 - [ ] Support other ConvNeXt variants (Small, Base, Large)
 - [ ] Add gradient clipping for training stability
 - [ ] Ensemble predictions (ResNet + ConvNeXt)
+- [ ] Two-stage prediction pipeline (binary detection → multi-class)
 
 ## Citation
 

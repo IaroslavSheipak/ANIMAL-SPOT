@@ -1,0 +1,202 @@
+# ANIMAL-SPOT Docker Compose Configuration
+# Provides easy-to-use services for training, prediction, and tuning
+
+version: '3.8'
+
+services:
+  # ============================================
+  # Training Service
+  # ============================================
+  train:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: animal-spot:latest
+    container_name: animal-spot-train
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - CUDA_VISIBLE_DEVICES=0
+    volumes:
+      - ${DATA_DIR:-./data}:/data:ro
+      - ${OUTPUT_DIR:-./output}:/output
+      - ${CACHE_DIR:-./cache}:/cache
+      - ${NOISE_DIR:-./noise}:/noise:ro
+    command: >
+      python /app/ANIMAL-SPOT/main.py
+        --data_dir /data
+        --model_dir /output/model
+        --checkpoint_dir /output/checkpoints
+        --log_dir /output/logs
+        --summary_dir /output/summaries
+        --cache_dir /cache
+        --num_classes ${NUM_CLASSES:-2}
+        --max_train_epochs ${MAX_EPOCHS:-150}
+        --batch_size ${BATCH_SIZE:-16}
+        --lr ${LEARNING_RATE:-1e-4}
+        --backbone ${BACKBONE:-resnet}
+        ${PRETRAINED:+--pretrained}
+        ${WEIGHTED_SAMPLING:+--weighted_sampling}
+        ${AUGMENTATION:+--augmentation}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # ============================================
+  # Prediction Service
+  # ============================================
+  predict:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: animal-spot:latest
+    container_name: animal-spot-predict
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+    volumes:
+      - ${AUDIO_DIR:-./audio}:/audio:ro
+      - ${MODEL_DIR:-./models}:/models:ro
+      - ${OUTPUT_DIR:-./output}:/output
+    command: >
+      python /app/ANIMAL-SPOT/predict.py
+        --model /models/${MODEL_FILE:-ANIMAL-SPOT.pk}
+        --audio_dir /audio
+        --output_dir /output
+        --threshold ${THRESHOLD:-0.85}
+        --window_size ${WINDOW_SIZE:-0.8}
+        --hop_size ${HOP_SIZE:-0.1}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # ============================================
+  # Binary Detector Training Service
+  # ============================================
+  train-binary:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: animal-spot:latest
+    container_name: animal-spot-train-binary
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+    volumes:
+      - ${DATA_DIR:-./data}:/data:ro
+      - ${OUTPUT_DIR:-./output}:/output
+      - ${CACHE_DIR:-./cache}:/cache
+    command: >
+      python /app/ANIMAL-SPOT/train_binary_detector.py
+        --data_dir /data
+        --output_dir /output
+        --cache_dir /cache
+        --max_epochs ${MAX_EPOCHS:-100}
+        --batch_size ${BATCH_SIZE:-64}
+        --lr ${LEARNING_RATE:-3e-4}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # ============================================
+  # Optuna Hyperparameter Tuning Service
+  # ============================================
+  optuna:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: animal-spot:latest
+    container_name: animal-spot-optuna
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+    volumes:
+      - ${DATA_DIR:-./data}:/data:ro
+      - ${OUTPUT_DIR:-./output}:/output
+      - ${CACHE_DIR:-./cache}:/cache
+    command: >
+      python /app/ANIMAL-SPOT/optuna_tuning.py
+        --data_dir /data
+        --output_dir /output
+        --cache_dir /cache
+        --num_classes ${NUM_CLASSES:-2}
+        --n_trials ${N_TRIALS:-100}
+        --max_epochs ${MAX_EPOCHS:-30}
+        --study_name ${STUDY_NAME:-animal_spot_study}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # ============================================
+  # TensorBoard Service
+  # ============================================
+  tensorboard:
+    image: tensorflow/tensorflow:latest
+    container_name: animal-spot-tensorboard
+    ports:
+      - "${TENSORBOARD_PORT:-6006}:6006"
+    volumes:
+      - ${OUTPUT_DIR:-./output}/summaries:/logs:ro
+    command: tensorboard --logdir=/logs --host=0.0.0.0 --port=6006
+
+  # ============================================
+  # Evaluation Service
+  # ============================================
+  evaluate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: animal-spot:latest
+    container_name: animal-spot-evaluate
+    volumes:
+      - ${PREDICTION_DIR:-./predictions}:/predictions:ro
+      - ${OUTPUT_DIR:-./output}:/output
+    command: >
+      python /app/EVALUATION/start_evaluation.py /app/EVALUATION/config
+    environment:
+      - PREDICTION_DIR=/predictions
+      - OUTPUT_DIR=/output
+      - THRESHOLD=${THRESHOLD:-0.85}
+
+# ============================================
+# Usage Examples:
+# ============================================
+#
+# 1. Training:
+#    DATA_DIR=/path/to/data OUTPUT_DIR=/path/to/output NUM_CLASSES=13 \
+#      docker-compose up train
+#
+# 2. Prediction:
+#    AUDIO_DIR=/path/to/audio MODEL_DIR=/path/to/models OUTPUT_DIR=/path/to/output \
+#      docker-compose up predict
+#
+# 3. Binary detector training:
+#    DATA_DIR=/path/to/data OUTPUT_DIR=/path/to/output \
+#      docker-compose up train-binary
+#
+# 4. Optuna tuning:
+#    DATA_DIR=/path/to/data OUTPUT_DIR=/path/to/output NUM_CLASSES=13 N_TRIALS=50 \
+#      docker-compose up optuna
+#
+# 5. TensorBoard (monitoring):
+#    OUTPUT_DIR=/path/to/output docker-compose up tensorboard
+#    Then open http://localhost:6006
+#
+# 6. Build image:
+#    docker-compose build
