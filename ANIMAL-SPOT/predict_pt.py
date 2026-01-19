@@ -36,7 +36,7 @@ def parse_args():
     parser.add_argument('--hop_len', type=int, default=500, help='Hop length in ms for sliding window')
     parser.add_argument('--threshold', type=float, default=0.5, help='Confidence threshold')
     parser.add_argument('--batch_size', type=int, default=32, help='Batch size for inference')
-    parser.add_argument('--device', type=str, default='cuda', help='Device (cuda/cpu)')
+    parser.add_argument('--device', type=str, default='cpu', help='Device (cuda/cpu). Default: cpu')
     return parser.parse_args()
 
 

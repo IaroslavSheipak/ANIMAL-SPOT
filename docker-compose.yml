@@ -48,6 +48,7 @@ services:
 
   # ============================================
   # Prediction Service (for best.pt model)
+  # Works on CPU by default, GPU optional
   # ============================================
   predict:
     build:
@@ -55,9 +56,6 @@ services:
       dockerfile: Dockerfile
     image: animal-spot:latest
     container_name: animal-spot-predict
-    runtime: nvidia
-    environment:
-      - NVIDIA_VISIBLE_DEVICES=all
     volumes:
       - ${AUDIO_DIR:-./audio}:/audio:ro
       - ${MODEL_DIR:-./models}:/models:ro
@@ -70,13 +68,7 @@ services:
         --threshold ${THRESHOLD:-0.5}
         --sequence_len ${SEQUENCE_LEN:-1000}
         --hop_len ${HOP_LEN:-250}
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+        --device ${DEVICE:-cpu}
 
   # ============================================
   # Legacy Prediction Service (for .pk models)
