@@ -1,8 +1,6 @@
 # ANIMAL-SPOT Docker Compose Configuration
 # Provides easy-to-use services for training, prediction, and tuning
 
-version: '3.8'
-
 services:
   # ============================================
   # Training Service
