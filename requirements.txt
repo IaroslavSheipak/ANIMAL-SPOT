@@ -1,5 +1,11 @@
 # ANIMAL-SPOT Requirements
-# PyTorch is pre-installed in the base image
+
+# PyTorch - install separately for your CUDA version if needed:
+# https://pytorch.org/get-started/locally/
+# Default: CPU version (works everywhere)
+torch>=2.0.0
+torchvision>=0.15.0
+torchaudio>=2.0.0
 
 # Audio processing
 librosa>=0.10.0

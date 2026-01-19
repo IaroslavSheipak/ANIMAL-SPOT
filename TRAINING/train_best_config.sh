@@ -1,11 +1,19 @@
 #!/bin/bash
 # Best configuration training script (99.49% test accuracy)
 # This is the optimal configuration discovered through hyperparameter optimization
+#
+# Usage: ./train_best_config.sh
+# Or with custom paths:
+#   DATA_DIR=/path/to/data OUTPUT_DIR=/path/to/output ./train_best_config.sh
 
 set -e  # Exit on error
 
-# Activate virtual environment
-source ../animal_spot_env/bin/activate
+# Activate virtual environment if exists (optional)
+if [ -f "../venv/bin/activate" ]; then
+    source ../venv/bin/activate
+elif [ -f "./venv/bin/activate" ]; then
+    source ./venv/bin/activate
+fi
 
 # Set paths (use environment variables or defaults)
 DATA_DIR="${DATA_DIR:-./data}"

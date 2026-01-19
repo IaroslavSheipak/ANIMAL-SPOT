@@ -13,121 +13,84 @@
 - [Network Evaluation](#network-evaluation)
 - [FAQ](#FAQ)
 
-# Quick Start
+# Quick Start (Docker)
 
-## Installation
+**Требования:** Docker + NVIDIA Container Toolkit (для GPU)
+
+## 1. Клонировать репозиторий
 
 ```bash
-# Clone repository
 git clone https://github.com/IaroslavSheipak/ANIMAL-SPOT.git
 cd ANIMAL-SPOT
+```
 
-# Create virtual environment
+## 2. Скачать предобученную модель (99.49% accuracy)
+
+Скачайте `best.pt` и поместите в папку `models/`:
+
+```
+ANIMAL-SPOT/
+├── models/
+│   └── best.pt          <-- сюда положить модель
+├── docker-compose.yml
+└── ...
+```
+
+**Конфигурация лучшей модели:**
+- ResNet18 backbone
+- 1000ms sequence length
+- sqrt_inverse_freq sampling + 1.5x boost для редких классов
+- Label smoothing 0.1
+- 13 классов (K1, K3, K4, K5, K7, K10, K12, K13, K14, K17, K21, K27, noise)
+
+## 3. Собрать Docker образ
+
+```bash
+docker-compose build
+```
+
+## 4. Запуск
+
+### Обучение (с нуля)
+
+```bash
+DATA_DIR=/path/to/data OUTPUT_DIR=./output NUM_CLASSES=13 \
+    docker-compose up train
+```
+
+### Предсказание на аудио
+
+```bash
+AUDIO_DIR=/path/to/audio MODEL_DIR=./models OUTPUT_DIR=./output \
+    docker-compose up predict
+```
+
+### Мониторинг (TensorBoard)
+
+```bash
+OUTPUT_DIR=./output docker-compose up tensorboard
+# Открыть http://localhost:6006
+```
+
+## Альтернатива: локальная установка
+
+Если Docker недоступен:
+
+```bash
+# 1. Создать виртуальное окружение
 python -m venv venv
 source venv/bin/activate  # Linux/Mac
-# or: venv\Scripts\activate  # Windows
+# или: venv\Scripts\activate  # Windows
 
-# Install dependencies
+# 2. Установить PyTorch (выбрать версию для вашей CUDA)
+# https://pytorch.org/get-started/locally/
+pip install torch torchvision torchaudio
+
+# 3. Установить зависимости
 pip install -r requirements.txt
 ```
 
-## Training (Best Configuration - 99.49% Accuracy)
-
-```bash
-# Using the optimized training script
-cd TRAINING
-./train_best_config.sh
-
-# Or manually with optimal parameters
-python ANIMAL-SPOT/main.py \
-    --data_dir /path/to/data \
-    --model_dir ./output/model \
-    --checkpoint_dir ./output/checkpoints \
-    --log_dir ./output/logs \
-    --summary_dir ./output/summaries \
-    --cache_dir ./cache \
-    --backbone resnet \
-    --batch_size 64 \
-    --lr 3e-4 \
-    --scheduler onecycle \
-    --label_smoothing 0.1 \
-    --weighted_sampling \
-    --sampling_strategy sqrt_inverse_freq \
-    --rare_class_boost 1.5 \
-    --sequence_len 1000 \
-    --n_fft 1024 \
-    --hop_length 172 \
-    --max_train_epochs 100 \
-    --early_stopping_patience_epochs 25 \
-    --augmentation \
-    --min_max_norm \
-    --num_workers 8
-```
-
-## Training (Alternative Configurations)
-
-```bash
-# ResNet-18 baseline
-cd TRAINING && ./train_resnet18.sh
-
-# ConvNeXt with pretrained weights
-cd TRAINING && ./train_convnext_pretrained.sh
-```
-
-## Prediction
-
-```bash
-python ANIMAL-SPOT/predict.py \
-    --model /path/to/ANIMAL-SPOT.pk \
-    --audio_dir /path/to/audio \
-    --output_dir ./predictions \
-    --threshold 0.85
-```
-
-## Hyperparameter Tuning (Optuna)
-
-```bash
-python ANIMAL-SPOT/optuna_tuning.py \
-    --data_dir /path/to/data \
-    --output_dir ./optuna_results \
-    --n_trials 50 \
-    --max_epochs 30
-```
-
-## Docker Usage
-
-```bash
-# Build image
-docker-compose build
-
-# Multi-class training
-DATA_DIR=/path/to/data OUTPUT_DIR=/path/to/output NUM_CLASSES=13 \
-    docker-compose up train
-
-# Binary detector training
-DATA_DIR=/path/to/data OUTPUT_DIR=/path/to/output \
-    docker-compose up train-binary
-
-# Prediction
-AUDIO_DIR=/path/to/audio MODEL_DIR=/path/to/models OUTPUT_DIR=/path/to/output \
-    docker-compose up predict
-
-# Hyperparameter tuning
-DATA_DIR=/path/to/data OUTPUT_DIR=/path/to/output N_TRIALS=50 \
-    docker-compose up optuna
-
-# TensorBoard monitoring
-OUTPUT_DIR=/path/to/output docker-compose up tensorboard
-# Then open http://localhost:6006
-```
-
-## Monitoring Training
-
-```bash
-tensorboard --logdir /path/to/summaries/
-```
-
-For detailed documentation, see [CHANGES.md](CHANGES.md).
+Подробная документация: [CHANGES.md](CHANGES.md)
 
 ---
 

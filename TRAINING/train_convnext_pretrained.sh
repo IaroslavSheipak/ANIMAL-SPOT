@@ -5,8 +5,12 @@
 
 set -e  # Exit on error
 
-# Activate virtual environment
-source ../animal_spot_env/bin/activate
+# Activate virtual environment if exists (optional)
+if [ -f "../venv/bin/activate" ]; then
+    source ../venv/bin/activate
+elif [ -f "./venv/bin/activate" ]; then
+    source ./venv/bin/activate
+fi
 
 # Set paths (use environment variables or defaults)
 DATA_DIR="${DATA_DIR:-./data}"
