@@ -61,8 +61,11 @@ DATA_DIR=/path/to/data OUTPUT_DIR=./output NUM_CLASSES=13 \
 ### Предсказание на аудио
 
 ```bash
+# Убедитесь что best.pt лежит в ./models/
 AUDIO_DIR=/path/to/audio MODEL_DIR=./models OUTPUT_DIR=./output \
     docker-compose up predict
+
+# Результаты будут в ./output/ в формате Raven (.txt)
 ```
 
 ### Мониторинг (TensorBoard)
