@@ -15,7 +15,7 @@
 
 # Quick Start (Docker)
 
-**Требования:** Docker + NVIDIA Container Toolkit (для GPU)
+**Требования:** Docker (GPU не обязателен - работает на CPU)
 
 ## 1. Клонировать репозиторий
 
@@ -24,9 +24,9 @@ git clone https://github.com/IaroslavSheipak/ANIMAL-SPOT.git
 cd ANIMAL-SPOT
 ```
 
-## 2. Скачать предобученную модель (99.49% accuracy)
+## 2. Получить модель
 
-Скачайте `best.pt` и поместите в папку `models/`:
+Попросите файл `best.pt` у Ярослава и поместите в папку `models/`:
 
 ```
 ANIMAL-SPOT/
@@ -43,36 +43,53 @@ ANIMAL-SPOT/
 - Label smoothing 0.1
 - 13 классов (K1, K3, K4, K5, K7, K10, K12, K13, K14, K17, K21, K27, noise)
 
-## 3. Собрать Docker образ
+## 3. Собрать Docker образ (один раз)
 
 ```bash
-docker-compose build
+docker compose build
 ```
 
 ## 4. Запуск
 
-### Обучение (с нуля)
+### Обучение (для специалистов)
 
 ```bash
-DATA_DIR=/path/to/data OUTPUT_DIR=./output NUM_CLASSES=13 \
-    docker-compose up train
+export DATA_DIR=/path/to/data
+export OUTPUT_DIR=./output
+export NUM_CLASSES=13
+docker compose up train
 ```
 
-### Предсказание на аудио
+### Предсказание на аудио (главная функция)
 
 ```bash
-# Убедитесь что best.pt лежит в ./models/
-AUDIO_DIR=/path/to/audio MODEL_DIR=./models OUTPUT_DIR=./output \
-    docker-compose up predict
+# 1. Убедитесь что best.pt лежит в ./models/
+# 2. Укажите пути к вашим файлам:
 
-# Результаты будут в ./output/ в формате Raven (.txt)
+export AUDIO_DIR=/полный/путь/к/wav/файлам
+export MODEL_DIR=./models
+export OUTPUT_DIR=./predictions
+
+docker compose up predict
+
+# Результаты появятся в папке predictions/ в формате Raven (.txt)
+# Эти файлы можно открыть в программе Raven Pro
 ```
 
-### Мониторинг (TensorBoard)
+**Windows (PowerShell):**
+```powershell
+$env:AUDIO_DIR="C:\путь\к\wav\файлам"
+$env:MODEL_DIR=".\models"
+$env:OUTPUT_DIR=".\predictions"
+docker compose up predict
+```
+
+### Мониторинг обучения (TensorBoard)
 
 ```bash
-OUTPUT_DIR=./output docker-compose up tensorboard
-# Открыть http://localhost:6006
+export OUTPUT_DIR=./output
+docker compose up tensorboard
+# Открыть в браузере: http://localhost:6006
 ```
 
 ## Альтернатива: локальная установка
