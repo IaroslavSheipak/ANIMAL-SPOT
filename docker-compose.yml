@@ -1,6 +1,8 @@
 # ANIMAL-SPOT Docker Compose Configuration
 # Provides easy-to-use services for training, prediction, and tuning
 
+version: '3.8'
+
 services:
   # ============================================
   # Training Service
@@ -45,8 +47,7 @@ services:
               capabilities: [gpu]
 
   # ============================================
-  # Prediction Service (for best.pt model)
-  # Works on CPU by default, GPU optional
+  # Prediction Service
   # ============================================
   predict:
     build:
@@ -54,29 +55,6 @@ services:
       dockerfile: Dockerfile
     image: animal-spot:latest
     container_name: animal-spot-predict
-    volumes:
-      - ${AUDIO_DIR:-./audio}:/audio:ro
-      - ${MODEL_DIR:-./models}:/models:ro
-      - ${OUTPUT_DIR:-./output}:/output
-    command: >
-      python /app/ANIMAL-SPOT/predict_pt.py
-        --model /models/${MODEL_FILE:-best.pt}
-        --audio_dir /audio
-        --output_dir /output
-        --threshold ${THRESHOLD:-0.5}
-        --sequence_len ${SEQUENCE_LEN:-1000}
-        --hop_len ${HOP_LEN:-250}
-        --device ${DEVICE:-cpu}
-
-  # ============================================
-  # Legacy Prediction Service (for .pk models)
-  # ============================================
-  predict-legacy:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: animal-spot:latest
-    container_name: animal-spot-predict-legacy
     runtime: nvidia
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
@@ -86,12 +64,12 @@ services:
       - ${OUTPUT_DIR:-./output}:/output
     command: >
       python /app/ANIMAL-SPOT/predict.py
-        --model_path /models/${MODEL_FILE:-ANIMAL-SPOT.pk}
-        --input_file /audio
+        --model /models/${MODEL_FILE:-ANIMAL-SPOT.pk}
+        --audio_dir /audio
         --output_dir /output
         --threshold ${THRESHOLD:-0.85}
-        --sequence_len ${SEQUENCE_LEN:-2}
-        --hop ${HOP:-1}
+        --window_size ${WINDOW_SIZE:-0.8}
+        --hop_size ${HOP_SIZE:-0.1}
     deploy:
       resources:
         reservations:
