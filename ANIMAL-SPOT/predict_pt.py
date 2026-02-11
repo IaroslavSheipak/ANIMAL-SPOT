@@ -187,35 +187,84 @@ def sliding_window_predict(audio_path: str, model: nn.Module, config: dict,
 
 
 def merge_predictions(predictions: list, threshold: float, min_gap: float = 0.3) -> list:
-    """Merge consecutive predictions of the same class."""
+    """Merge consecutive predictions of the same class (legacy)."""
     if not predictions:
         return []
-
-    # Filter by threshold and exclude noise
-    filtered = [p for p in predictions if p['confidence'] >= threshold and p['predicted_class'] != 'NOISE']
-
+    filtered = [p for p in predictions if p['confidence'] >= threshold and p['predicted_class'].upper() != 'NOISE']
     if not filtered:
         return []
-
-    # Sort by start time
     filtered.sort(key=lambda x: x['start'])
-
     merged = []
     current = filtered[0].copy()
-
     for pred in filtered[1:]:
-        # Same class and overlapping/close?
         if (pred['predicted_class'] == current['predicted_class'] and
             pred['start'] - current['end'] <= min_gap):
-            # Extend
             current['end'] = pred['end']
             current['confidence'] = max(current['confidence'], pred['confidence'])
         else:
             merged.append(current)
             current = pred.copy()
-
     merged.append(current)
     return merged
+
+
+def resolve_overlaps(predictions: list, threshold: float, time_resolution: float = 0.05) -> list:
+    """
+    Resolve overlapping segments so that every time point belongs to exactly one label.
+    For each time slice we assign the label of the segment with highest confidence covering it,
+    then merge contiguous same-label intervals. Produces non-overlapping Raven annotations.
+    """
+    if not predictions:
+        return []
+
+    # Filter by threshold (include noise so we have full coverage)
+    filtered = [p for p in predictions if p['confidence'] >= threshold]
+    if not filtered:
+        return []
+
+    # Get time bounds
+    t_min = min(p['start'] for p in filtered)
+    t_max = max(p['end'] for p in filtered)
+
+    # Discretize timeline and assign winning label per slice
+    n_slices = max(1, int((t_max - t_min) / time_resolution) + 1)
+    times = np.linspace(t_min, t_max, n_slices)
+
+    labels = []
+    confidences = []
+    for i in range(len(times) - 1):
+        t_center = (times[i] + times[i + 1]) / 2
+        best_conf = -1.0
+        best_class = 'noise'
+        for p in filtered:
+            if p['start'] <= t_center < p['end'] and p['confidence'] > best_conf:
+                best_conf = p['confidence']
+                best_class = p['predicted_class']
+        labels.append(best_class)
+        confidences.append(best_conf)
+
+    # Merge contiguous same-label intervals
+    result = []
+    i = 0
+    while i < len(labels):
+        cls = labels[i]
+        conf = confidences[i]
+        t_start = times[i]
+        t_end = times[i + 1]
+        j = i + 1
+        while j < len(labels) and labels[j] == cls:
+            t_end = times[j + 1]
+            conf = max(conf, confidences[j])
+            j += 1
+        result.append({
+            'start': round(t_start, 3),
+            'end': round(t_end, 3),
+            'predicted_class': cls,
+            'confidence': round(conf, 4)
+        })
+        i = j
+
+    return result
 
 
 def save_raven_format(predictions: list, output_path: str, audio_filename: str):
@@ -258,13 +307,13 @@ def main():
                 str(audio_file), model, config, classes, args, device
             )
 
-            # Merge overlapping predictions
-            merged = merge_predictions(predictions, args.threshold)
+            # Resolve overlaps so labels are non-overlapping (each time point → one label)
+            non_overlapping = resolve_overlaps(predictions, args.threshold)
 
             # Save results
             base_name = audio_file.stem
 
-            # Save detailed JSON
+            # Save detailed JSON (include raw and non-overlapping)
             json_path = output_dir / f"{base_name}_predictions.json"
             with open(json_path, 'w') as f:
                 json.dump({
@@ -272,20 +321,20 @@ def main():
                     'config': config,
                     'threshold': args.threshold,
                     'raw_predictions': predictions,
-                    'merged_predictions': merged
+                    'merged_predictions': non_overlapping
                 }, f, indent=2)
 
-            # Save Raven format
+            # Save Raven format (non-overlapping segments only)
             raven_path = output_dir / f"{base_name}_predictions.txt"
-            save_raven_format(merged, str(raven_path), audio_file.name)
+            save_raven_format(non_overlapping, str(raven_path), audio_file.name)
 
             all_results[audio_file.name] = {
                 'n_raw_predictions': len(predictions),
-                'n_merged_predictions': len(merged),
-                'classes_detected': list(set(p['predicted_class'] for p in merged))
+                'n_merged_predictions': len(non_overlapping),
+                'classes_detected': list(set(p['predicted_class'] for p in non_overlapping))
             }
 
-            print(f"  Found {len(merged)} call segments: {all_results[audio_file.name]['classes_detected']}")
+            print(f"  Found {len(non_overlapping)} call segments: {all_results[audio_file.name]['classes_detected']}")
 
         except Exception as e:
             print(f"  Error: {e}")
