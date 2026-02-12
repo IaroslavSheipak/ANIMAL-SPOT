@@ -50,3 +50,10 @@ Thumbs.db
 
 # Jupyter
 .ipynb_checkpoints/
+
+# article info
+ARTICLE/
+run_prediction.sh
+new_testing_files_2016/
+predictions/
+final/
