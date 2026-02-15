@@ -9,6 +9,10 @@ __pycache__/
 dist/
 build/
 
+# Frontend (Streamlit component)
+audio_timeline_component/frontend/node_modules/
+audio_timeline_component/frontend/build/
+
 # Virtual environments
 venv/
 env/
