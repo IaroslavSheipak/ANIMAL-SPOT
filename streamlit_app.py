@@ -31,6 +31,29 @@ RAVEN_COLUMNS = [
     "Confidence",
 ]
 
+DEFAULT_CLASS_COLORS = [
+    "#1f77b4",
+    "#ff7f0e",
+    "#2ca02c",
+    "#d62728",
+    "#9467bd",
+    "#8c564b",
+    "#e377c2",
+    "#7f7f7f",
+    "#bcbd22",
+    "#17becf",
+    "#aec7e8",
+    "#ffbb78",
+    "#98df8a",
+    "#ff9896",
+    "#c5b0d5",
+    "#c49c94",
+    "#f7b6d2",
+    "#c7c7c7",
+    "#dbdb8d",
+    "#9edae5",
+]
+
 
 def extract_expected_labels(recording_id: str) -> list[str]:
     """Extract expected class tags (Kxx) from a file stem."""
@@ -175,7 +198,11 @@ def load_source_tables(data_dir: Path, suffix: str, source: str) -> tuple[pd.Dat
     return metadata_df, events_df
 
 
-def build_audio_catalog(gt_metadata: pd.DataFrame, pred_metadata: pd.DataFrame) -> pd.DataFrame:
+def build_audio_catalog(
+    gt_metadata: pd.DataFrame,
+    pred_metadata: pd.DataFrame,
+    extra_audio_dirs: list[Path] | None = None,
+) -> pd.DataFrame:
     """Create unified index of audio files with optional GT and prediction tables."""
     candidate_dirs: set[Path] = set()
     for metadata in (gt_metadata, pred_metadata):
@@ -185,6 +212,10 @@ def build_audio_catalog(gt_metadata: pd.DataFrame, pred_metadata: pd.DataFrame) 
             path_obj = Path(source_path)
             if path_obj.exists():
                 candidate_dirs.add(path_obj.parent)
+    if extra_audio_dirs:
+        for directory in extra_audio_dirs:
+            if directory.exists() and directory.is_dir():
+                candidate_dirs.add(directory)
 
     audio_files: list[Path] = []
     for directory in sorted(candidate_dirs):
@@ -478,6 +509,7 @@ def run_app() -> None:
     st.sidebar.header("Data")
     gt_dir_input = st.sidebar.text_input("Ground Truth folder", str(default_gt_dir))
     pred_dir_input = st.sidebar.text_input("Prediction folder", str(default_pred_dir))
+    gt_load_clicked = st.sidebar.button("Load GT")
     refresh_cache = st.sidebar.button("Reload From Disk")
     if refresh_cache:
         cached_load_source.clear()
@@ -486,6 +518,16 @@ def run_app() -> None:
 
     gt_dir = Path(gt_dir_input)
     pred_dir = Path(pred_dir_input)
+    gt_load_state_key = "gt_load_enabled"
+    if gt_load_state_key not in st.session_state:
+        st.session_state[gt_load_state_key] = False
+    if gt_load_clicked:
+        st.session_state[gt_load_state_key] = True
+
+    gt_load_enabled = bool(st.session_state.get(gt_load_state_key, False))
+    if not gt_load_enabled:
+        st.sidebar.caption("Ground Truth is not loaded. Click `Load GT` to include GT events.")
+
     if not (gt_dir.exists() and gt_dir.is_dir()) and not (pred_dir.exists() and pred_dir.is_dir()):
         st.error(
             "Neither Ground Truth nor Prediction folder exists. "
@@ -495,7 +537,7 @@ def run_app() -> None:
 
     gt_metadata, gt_events = (
         cached_load_source(str(gt_dir), GROUND_TRUTH_SUFFIX, "ground_truth")
-        if gt_dir.exists() and gt_dir.is_dir()
+        if gt_load_enabled and gt_dir.exists() and gt_dir.is_dir()
         else (pd.DataFrame(), pd.DataFrame())
     )
     pred_metadata, pred_events = (
@@ -504,7 +546,7 @@ def run_app() -> None:
         else (pd.DataFrame(), pd.DataFrame())
     )
 
-    catalog_df = build_audio_catalog(gt_metadata, pred_metadata)
+    catalog_df = build_audio_catalog(gt_metadata, pred_metadata, extra_audio_dirs=[gt_dir, pred_dir])
     if catalog_df.empty:
         st.warning(
             "No audio/prediction data found for the selected folders. "
@@ -519,7 +561,7 @@ def run_app() -> None:
         source_events.append(pred_events.copy())
     all_events_df = pd.concat(source_events, ignore_index=True) if source_events else pd.DataFrame()
 
-    total_audio_s = float(catalog_df["audio_duration_s"].dropna().sum())
+    total_audio_s = float(pd.to_numeric(catalog_df["audio_duration_s"], errors="coerce").dropna().sum())
     gt_total = int(gt_events.shape[0]) if not gt_events.empty else 0
     pred_total = int(pred_events.shape[0]) if not pred_events.empty else 0
     all_non_noise = (
@@ -569,11 +611,11 @@ def run_app() -> None:
             else empty_events.copy()
         )
 
-        toggle_cols = st.columns((1, 1, 1))
+        toggle_cols = st.columns((1, 1))
         with toggle_cols[0]:
             show_ground_truth = st.checkbox(
                 "Show Ground Truth",
-                value=not gt_record_events.empty,
+                value=False,
                 disabled=gt_record_events.empty,
             )
         with toggle_cols[1]:
@@ -582,8 +624,7 @@ def run_app() -> None:
                 value=not pred_record_events.empty,
                 disabled=pred_record_events.empty,
             )
-        with toggle_cols[2]:
-            peak_bins = st.slider("Waveform Detail", 1000, 20000, 5000, step=1000)
+        peak_bins = 5000
 
         class_values = sorted(
             set(gt_record_events["label"].astype(str).tolist()) | set(pred_record_events["label"].astype(str).tolist())
@@ -633,12 +674,9 @@ def run_app() -> None:
         summary_cols[2].metric("Visible Classes", len(selected_classes))
         summary_cols[3].metric("Audio Duration", format_seconds(selected_row["audio_duration_s"]))
 
-        class_palette = {}
-        if selected_classes:
-            import matplotlib.pyplot as plt
-
-            cmap = plt.get_cmap("tab20")
-            class_palette = {name: rgba_to_css(cmap(i % 20)) for i, name in enumerate(selected_classes)}
+        class_palette = {
+            name: DEFAULT_CLASS_COLORS[i % len(DEFAULT_CLASS_COLORS)] for i, name in enumerate(selected_classes)
+        }
 
         audio_path = str(selected_row["audio_path"])
         if audio_path:
@@ -646,7 +684,9 @@ def run_app() -> None:
             try:
                 audio_base64 = cached_audio_base64(audio_path)
                 peaks = cached_audio_peaks(audio_path, peak_bins)
-                duration_s = float(selected_row["audio_duration_s"] or 0.0)
+                duration_s = (
+                    float(selected_row["audio_duration_s"]) if pd.notna(selected_row["audio_duration_s"]) else 0.0
+                )
 
                 gt_payload = [
                     {
@@ -692,7 +732,7 @@ def run_app() -> None:
             except Exception as exc:
                 st.warning(f"Could not render timeline for `{selected_row['audio_file']}`: {exc}")
         else:
-            st.warning("No matching WAV file for this recording id in the selected audio folder.")
+            st.warning("No matching WAV file for this recording id in the selected folders.")
 
         class_distribution = pd.DataFrame(index=selected_classes)
         if not visible_gt.empty:
@@ -750,7 +790,9 @@ def run_app() -> None:
                 availability = catalog_df[
                     ["recording_id", "audio_file", "has_ground_truth", "has_predictions", "audio_duration_s"]
                 ].copy()
-                availability["audio_duration_s"] = availability["audio_duration_s"].round(2)
+                availability["audio_duration_s"] = pd.to_numeric(
+                    availability["audio_duration_s"], errors="coerce"
+                ).round(2)
                 st.dataframe(availability, width="stretch", hide_index=True)
 
     with tabs[2]:
