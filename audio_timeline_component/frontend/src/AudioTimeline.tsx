@@ -512,14 +512,27 @@ const AudioTimeline: React.FC<ComponentProps> = ({ args }) => {
   };
 
   const resetZoom = () => {
+    const wave = waveSurferRef.current;
+    if (!wave) return;
+
+    // Match rerender behavior from filtering: restart playback from the beginning.
+    wave.pause();
+    wave.seekTo(0);
+    setIsPlaying(false);
+    setCurrentTime(0);
+    setSelectedEvent(null);
+    setHover(null);
+
     const baseline = baselineZoomRef.current;
     if (baseline !== null) {
       applyZoom(baseline, true);
       enforceSingleRowWave();
+      requestDraw();
       return;
     }
     fitZoomToViewport(true);
     enforceSingleRowWave();
+    requestDraw();
   };
 
   const handleWheel = (evt: React.WheelEvent) => {
