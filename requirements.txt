@@ -21,6 +21,7 @@ scikit-image>=0.21.0
 # Visualization
 matplotlib>=3.7.0
 seaborn>=0.12.0
+streamlit>=1.36.0
 
 # Deep learning utilities
 tensorboardX>=2.6

@@ -11,6 +11,7 @@
 - [Network Training](#network-training)
 - [Network Prediction](#network-prediction)
 - [Network Evaluation](#network-evaluation)
+- [Streamlit Demo](#streamlit-demo)
 - [FAQ](#FAQ)
 
 # Quick Start (Docker)
@@ -113,6 +114,42 @@ pip install -r requirements.txt
 Подробная документация: [CHANGES.md](CHANGES.md)
 
 ---
+
+# Streamlit Demo
+
+For a localhost demonstration of prediction results,
+run the Streamlit app included in this repository:
+
+```bash
+cd ANIMAL-SPOT
+pip install -r requirements.txt
+streamlit run streamlit_app.py
+```
+
+By default, the app reads prediction tables from:
+
+```
+ANIMAL-SPOT/predictions
+```
+
+You can change the folder from the sidebar in the UI.
+
+To enable the interactive audio timeline (WaveSurfer component), build the frontend once:
+
+```bash
+cd ANIMAL-SPOT/audio_timeline_component/frontend
+npm install
+npm run build
+```
+
+Optional dev mode (hot reload):
+
+```bash
+cd ANIMAL-SPOT/audio_timeline_component/frontend
+npm install
+npm run dev
+# Then set: AUDIO_TIMELINE_DEV_URL=http://localhost:5173
+```
 
 # General Description
 ANIMAL-SPOT is an animal-independent deep learning software framework that addresses various bioacoustic signal identifcation scenarios, such as: (1) binary target/noise detection, (2) multi-class species identification, and (3) multi-class call type recognition. ANIMAL-SPOT is a ResNet18-based Convolutional Neural Network (CNN), taking inspiration from ORCA-SPOT, a ResNet18-based CNN applied to killer whale sound type versus background noise detection (see https://www.nature.com/articles/s41598-019-47335-w). ANIMAL-SPOT's performance
