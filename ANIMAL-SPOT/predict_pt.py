@@ -41,25 +41,51 @@ def parse_args():
 
 
 def load_model(model_path: str, device: str):
-    """Load our optimized .pt model."""
+    """Load our optimized .pt model (supports ResNet, ConvNeXt V2, EfficientNet, MobileNet via timm)."""
     checkpoint = torch.load(model_path, map_location=device, weights_only=False)
 
     config = checkpoint.get('config', {})
     classes = checkpoint['classes']
     num_classes = len(classes)
 
-    # Create model (ResNet18 with 1-channel input)
     backbone = config.get('backbone', 'resnet18')
-    if backbone == 'resnet18':
-        model = models.resnet18(weights=None)
-    elif backbone == 'resnet34':
-        model = models.resnet34(weights=None)
-    else:
-        model = models.resnet18(weights=None)
 
-    # Modify for 1-channel input
-    model.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
-    model.fc = nn.Linear(model.fc.in_features, num_classes)
+    # timm-based models (ConvNeXt V2, MobileNetV3, EfficientFormerV2, etc.)
+    timm_backbones = {"convnextv2_pico", "convnextv2_femto", "convnextv2_nano",
+                      "mobilenetv3_large_100", "mobilenetv4_conv_small",
+                      "efficientformerv2_s0", "efficientformerv2_l"}
+
+    if backbone in timm_backbones or backbone.startswith("convnextv2_"):
+        import timm
+        model = timm.create_model(backbone, pretrained=False, in_chans=1, num_classes=num_classes)
+    elif backbone == "efficientnet_v2_s":
+        model = models.efficientnet_v2_s(weights=None)
+        old_conv = model.features[0][0]
+        model.features[0][0] = nn.Conv2d(1, old_conv.out_channels,
+                                          kernel_size=old_conv.kernel_size,
+                                          stride=old_conv.stride,
+                                          padding=old_conv.padding,
+                                          bias=old_conv.bias is not None)
+        in_features = model.classifier[1].in_features
+        model.classifier[1] = nn.Linear(in_features, num_classes)
+    elif backbone == "convnext_tiny":
+        model = models.convnext_tiny(weights=None)
+        old_conv = model.features[0][0]
+        model.features[0][0] = nn.Conv2d(1, old_conv.out_channels,
+                                          kernel_size=old_conv.kernel_size,
+                                          stride=old_conv.stride,
+                                          padding=old_conv.padding,
+                                          bias=old_conv.bias is not None)
+        in_features = model.classifier[2].in_features
+        model.classifier[2] = nn.Linear(in_features, num_classes)
+    else:
+        # ResNet family
+        if backbone == 'resnet34':
+            model = models.resnet34(weights=None)
+        else:
+            model = models.resnet18(weights=None)
+        model.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        model.fc = nn.Linear(model.fc.in_features, num_classes)
 
     # Load weights - handle torch.compile() prefix
     state_dict = checkpoint['model_state_dict']
